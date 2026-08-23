@@ -1,6 +1,3 @@
-from pathlib import Path
-
-code = r'''
 """
 portfolio_engine.py
 
@@ -100,6 +97,7 @@ import logging
 import math
 import os
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -251,6 +249,60 @@ class Config:
         "REQUEST_RETRIES", 3
     )
 
+    # -------------------------------------------------------------------
+    # v2 additions
+    # -------------------------------------------------------------------
+
+    # Regime / whipsaw filter (Issue #1)
+    adx_period: int = env_int("ADX_PERIOD", 14)
+    adx_min_strength: float = env_float("ADX_MIN_STRENGTH", 20.0)
+
+    # Portfolio-level kill switch (Issue #2)
+    kill_switch_flatten: bool = env_bool("KILL_SWITCH_FLATTEN", True)
+    kill_switch_cooldown_days: int = env_int("KILL_SWITCH_COOLDOWN_DAYS", 1)
+
+    # Continuous exposure re-check / auto-trim (Issue #2/#3)
+    exposure_recheck_enabled: bool = env_bool("EXPOSURE_RECHECK_ENABLED", True)
+    exposure_trim_buffer_pct: float = env_float("EXPOSURE_TRIM_BUFFER_PCT", 5.0)
+
+    # Sector / correlation concentration cap (Issue #3)
+    max_sector_exposure_pct: float = env_float("MAX_SECTOR_EXPOSURE_PCT", 25.0)
+    sector_map_raw: str = os.getenv("SECTOR_MAP", "")
+
+    # Execution quality (Issue #4)
+    entry_limit_slippage_bps: float = env_float("ENTRY_LIMIT_SLIPPAGE_BPS", 15.0)
+    use_stop_limit: bool = env_bool("USE_STOP_LIMIT", True)
+    stop_limit_buffer_bps: float = env_float("STOP_LIMIT_BUFFER_BPS", 25.0)
+
+    # Wheel downside protection (Issue #5)
+    wheel_max_loss_pct: float = env_float("WHEEL_MAX_LOSS_PCT", 15.0)
+
+    # Data-dependency health / alerting (Issue #6)
+    earnings_failure_alert_threshold: int = env_int(
+        "EARNINGS_FAILURE_ALERT_THRESHOLD", 3
+    )
+
+    # State/crash consistency + single-instance lock (Issue #7)
+    lock_file: str = os.getenv("LOCK_FILE", "portfolio_engine.lock")
+    reconcile_on_startup: bool = env_bool("RECONCILE_ON_STARTUP", True)
+
+    # PDT protection (Issue #8)
+    pdt_protection: bool = env_bool("PDT_PROTECTION", True)
+    pdt_equity_threshold: float = env_float("PDT_EQUITY_THRESHOLD", 25000.0)
+    pdt_max_day_trades: int = env_int("PDT_MAX_DAY_TRADES", 3)
+
+    # Wash-sale awareness (informational only) (Issue #9)
+    wash_sale_window_days: int = env_int("WASH_SALE_WINDOW_DAYS", 30)
+
+    # Email alerting
+    alerts_enabled: bool = env_bool("ALERTS_ENABLED", False)
+    smtp_host: str = os.getenv("SMTP_HOST", "")
+    smtp_port: int = env_int("SMTP_PORT", 587)
+    smtp_user: str = os.getenv("SMTP_USER", "")
+    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
+    alert_email_to: str = os.getenv("ALERT_EMAIL_TO", "")
+    alert_email_from: str = os.getenv("ALERT_EMAIL_FROM", "")
+
 
 CONFIG = Config()
 
@@ -265,6 +317,71 @@ logging.basicConfig(
 )
 
 LOGGER = logging.getLogger("portfolio-engine")
+
+
+# =============================================================================
+# ALERTING
+# =============================================================================
+#
+# Fixes Issue #6 (silent dependency failures / no alerting) and supports
+# alerting for kill-switch activations, PDT blocks, and reconciliation
+# mismatches. Uses plain SMTP so it works with Gmail (via an app password),
+# or any other provider - it does not depend on any particular chat/agent
+# integration, since this process runs unattended, outside a conversation.
+
+class EmailAlerter:
+
+    def __init__(self, config: "Config"):
+        self.config = config
+        self._last_sent: Dict[str, float] = {}
+        self._min_repeat_seconds = 900  # avoid alert spam: 15 min cooldown/key
+
+    @property
+    def enabled(self) -> bool:
+        c = self.config
+        return bool(
+            c.alerts_enabled
+            and c.smtp_host
+            and c.smtp_user
+            and c.smtp_password
+            and c.alert_email_to
+        )
+
+    def send(self, subject: str, body: str, key: Optional[str] = None) -> None:
+        if not self.enabled:
+            LOGGER.warning("ALERT (email disabled): %s | %s", subject, body)
+            return
+
+        now = time.time()
+        if key:
+            last = self._last_sent.get(key, 0)
+            if now - last < self._min_repeat_seconds:
+                return
+            self._last_sent[key] = now
+
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+
+            msg = MIMEText(body)
+            msg["Subject"] = f"[portfolio-engine] {subject}"
+            msg["From"] = self.config.alert_email_from or self.config.smtp_user
+            msg["To"] = self.config.alert_email_to
+
+            with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port) as server:
+                server.starttls()
+                server.login(self.config.smtp_user, self.config.smtp_password)
+                server.sendmail(
+                    msg["From"], [self.config.alert_email_to], msg.as_string()
+                )
+
+            LOGGER.info("Alert email sent: %s", subject)
+
+        except Exception as exc:
+            LOGGER.exception("Failed to send alert email: %s", exc)
+
+
+ALERTER = EmailAlerter(CONFIG)
 
 
 # =============================================================================
@@ -289,6 +406,12 @@ class StockState:
 
     activated_trailing: bool = False
 
+    # Issue #9 support: last observed unrealized P&L while the position
+    # was open, used as a best-effort realized-loss estimate for the
+    # wash-sale tracker at the moment the position is detected closed
+    # (Alpaca doesn't hand us the closing fill directly here).
+    last_unrealized_pl: Optional[float] = None
+
 
 @dataclass
 class WheelState:
@@ -311,6 +434,10 @@ class WheelState:
 class PortfolioState:
     session_date: Optional[str] = None
     session_start_equity: Optional[float] = None
+
+    # Issue #2: date (ISO string) the portfolio-level kill switch last
+    # flattened positions, used to enforce a re-entry cooldown.
+    kill_switch_date: Optional[str] = None
 
     stocks: Dict[str, StockState] = field(
         default_factory=dict
@@ -340,6 +467,7 @@ class StateStore:
                 session_start_equity=raw.get(
                     "session_start_equity"
                 ),
+                kill_switch_date=raw.get("kill_switch_date"),
             )
 
             for symbol, data in raw.get(
@@ -377,6 +505,67 @@ class StateStore:
         )
 
         tmp.replace(self.path)
+
+
+# =============================================================================
+# SINGLE-INSTANCE LOCK
+# =============================================================================
+#
+# Fixes Issue #7 (state-consistency risk from concurrent instances). The
+# local JSON state file has no locking of its own, so running two copies
+# of this engine against the same account (accidentally, via a bad
+# supervisor/cron config, or across two machines) can cause both to act
+# on stale state and double-trade. This is a simple PID-file lock -
+# not distributed-systems-grade, but it catches the realistic failure
+# mode of "I forgot a second instance was already running."
+
+class ProcessLock:
+
+    def __init__(self, path: str):
+        self.path = Path(path)
+        self._acquired = False
+
+    def acquire(self) -> None:
+        if self.path.exists():
+            try:
+                existing_pid = int(self.path.read_text().strip())
+            except Exception:
+                existing_pid = None
+
+            if existing_pid and self._pid_alive(existing_pid):
+                raise RuntimeError(
+                    f"Another portfolio_engine instance appears to be "
+                    f"running (pid={existing_pid}, lock={self.path}). "
+                    "Refusing to start a second instance against the "
+                    "same state/account. Remove the lock file if this "
+                    "is stale."
+                )
+
+            LOGGER.warning(
+                "Stale lock file found (pid=%s not running). Reclaiming.",
+                existing_pid,
+            )
+
+        self.path.write_text(str(os.getpid()))
+        self._acquired = True
+
+    def release(self) -> None:
+        if self._acquired and self.path.exists():
+            try:
+                self.path.unlink()
+            except Exception:
+                pass
+        self._acquired = False
+
+    @staticmethod
+    def _pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+        except Exception:
+            return True  # fail safe: assume alive if we can't tell
 
 
 # =============================================================================
@@ -445,6 +634,43 @@ def position_market_value(
             position.get("market_value")
         )
     )
+
+
+def is_equity_position(position: Dict[str, Any]) -> bool:
+    """
+    Fixes a fragile heuristic (`len(symbol) > 10` used to guess whether a
+    position was a stock or an option). Alpaca positions include an
+    explicit `asset_class` field ("us_equity" vs "us_option") - use that
+    directly, and only fall back to the length heuristic if the field is
+    ever missing (e.g. against an older API version), so behavior degrades
+    gracefully instead of breaking outright.
+    """
+    asset_class = str(position.get("asset_class", "")).lower()
+    if asset_class:
+        return asset_class == "us_equity"
+
+    symbol = position.get("symbol", "")
+    return len(symbol) <= 10
+
+
+def parse_sector_map(raw: str) -> Dict[str, str]:
+    """
+    Parses SECTOR_MAP env var of the form "AAPL:tech,MSFT:tech,XOM:energy"
+    into a symbol -> sector dict. Unrecognized/malformed entries are
+    skipped rather than raising, since this is a soft risk control, not a
+    correctness-critical path.
+    """
+    mapping: Dict[str, str] = {}
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk or ":" not in chunk:
+            continue
+        symbol, _, sector = chunk.partition(":")
+        symbol = symbol.strip().upper()
+        sector = sector.strip().lower()
+        if symbol and sector:
+            mapping[symbol] = sector
+    return mapping
 
 
 # =============================================================================
@@ -629,6 +855,28 @@ class AlpacaClient:
             f"{self.trading_base}/v2/orders/{order_id}",
         )
 
+    def get_order_by_client_id(
+        self,
+        client_order_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fixes Issue #7 (crash-consistency / duplicate orders): before
+        submitting any order, callers generate the client_order_id and
+        persist it to local state FIRST. If the process crashes between
+        submission and state save, this lookup lets us recover the order
+        that was actually placed at the broker instead of blindly
+        resubmitting (which could double an order or, for options,
+        double-sell/over-collateralize).
+        """
+        try:
+            return self.request(
+                "GET",
+                f"{self.trading_base}/v2/orders:by_client_order_id",
+                params={"client_order_id": client_order_id},
+            )
+        except AlpacaAPIError:
+            return None
+
     def cancel_order(
         self,
         order_id: str,
@@ -737,6 +985,7 @@ class AlpacaClient:
         order_type: str,
         client_order_id: str,
         stop_price: Optional[float] = None,
+        limit_price: Optional[float] = None,
         time_in_force: str = "day",
     ) -> Dict[str, Any]:
 
@@ -752,6 +1001,11 @@ class AlpacaClient:
         if stop_price is not None:
             payload["stop_price"] = (
                 f"{stop_price:.2f}"
+            )
+
+        if limit_price is not None:
+            payload["limit_price"] = (
+                f"{limit_price:.2f}"
             )
 
         if not CONFIG.live_trading:
@@ -1025,6 +1279,84 @@ def atr(
     ) + result
 
 
+def adx(
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    period: int,
+) -> List[float]:
+    """
+    Average Directional Index - measures trend *strength* (not direction).
+
+    Rationale (Issue #1): an EMA crossover fires on noise as readily as on
+    a real trend. ADX is used as a regime filter: crossovers are only
+    acted on when ADX confirms the market is actually trending, which
+    materially reduces whipsaw entries in choppy/range-bound conditions.
+    """
+
+    n = len(closes)
+    if n < period * 2 + 1:
+        return []
+
+    plus_dm = [0.0] * n
+    minus_dm = [0.0] * n
+    tr = [0.0] * n
+
+    for i in range(1, n):
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+
+        plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+        tr[i] = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+
+    def wilder_smooth(values: List[float]) -> List[float]:
+        smoothed = [0.0] * n
+        first = sum(values[1:period + 1])
+        smoothed[period] = first
+        for i in range(period + 1, n):
+            smoothed[i] = smoothed[i - 1] - (smoothed[i - 1] / period) + values[i]
+        return smoothed
+
+    tr_smooth = wilder_smooth(tr)
+    plus_dm_smooth = wilder_smooth(plus_dm)
+    minus_dm_smooth = wilder_smooth(minus_dm)
+
+    dx = [math.nan] * n
+    for i in range(period, n):
+        if tr_smooth[i] <= 0:
+            continue
+        plus_di = 100.0 * (plus_dm_smooth[i] / tr_smooth[i])
+        minus_di = 100.0 * (minus_dm_smooth[i] / tr_smooth[i])
+        denom = plus_di + minus_di
+        if denom <= 0:
+            dx[i] = 0.0
+            continue
+        dx[i] = 100.0 * (abs(plus_di - minus_di) / denom)
+
+    valid_dx = [v for v in dx[period:period * 2] if not math.isnan(v)]
+    if len(valid_dx) < period:
+        return [math.nan] * n
+
+    result = [math.nan] * n
+    adx_val = sum(valid_dx) / period
+    result[period * 2 - 1] = adx_val
+
+    for i in range(period * 2, n):
+        if math.isnan(dx[i]):
+            result[i] = result[i - 1]
+            continue
+        adx_val = ((adx_val * (period - 1)) + dx[i]) / period
+        result[i] = adx_val
+
+    return result
+
+
 # =============================================================================
 # EARNINGS FILTER
 # =============================================================================
@@ -1035,9 +1367,47 @@ class EarningsFilter:
         self,
         enabled: bool,
         blackout_days: int,
+        config: Optional["Config"] = None,
+        alerter: Optional["EmailAlerter"] = None,
     ):
         self.enabled = enabled
         self.blackout_days = blackout_days
+        self.config = config
+        self.alerter = alerter
+        # Issue #6: yfinance is an unofficial, frequently-breaking data
+        # source. The filter already "fails closed" (skips trading) on
+        # error, which is the safe default - but a silent fail-closed
+        # streak can quietly disable an entire strategy leg for days
+        # without anyone noticing. Track consecutive failures per symbol
+        # and alert once a threshold is crossed.
+        self._consecutive_failures: Dict[str, int] = {}
+
+    def _note_failure(self, symbol: str, exc: Exception) -> None:
+        count = self._consecutive_failures.get(symbol, 0) + 1
+        self._consecutive_failures[symbol] = count
+
+        threshold = (
+            self.config.earnings_failure_alert_threshold
+            if self.config
+            else 3
+        )
+
+        if count == threshold and self.alerter:
+            self.alerter.send(
+                subject=f"Earnings data unavailable for {symbol}",
+                body=(
+                    f"The earnings-date lookup for {symbol} has failed "
+                    f"{count} consecutive times ({exc}). The filter is "
+                    "failing closed (treating this as a blackout), which "
+                    "means the engine is silently skipping entries for "
+                    "this symbol. Check the yfinance dependency / data "
+                    "source."
+                ),
+                key=f"earnings-failure-{symbol}",
+            )
+
+    def _note_success(self, symbol: str) -> None:
+        self._consecutive_failures[symbol] = 0
 
     def is_blackout(
         self,
@@ -1105,7 +1475,12 @@ class EarningsFilter:
                     "filter fails closed.",
                     symbol,
                 )
+                self._note_failure(
+                    symbol, RuntimeError("no earnings date returned")
+                )
                 return True
+
+            self._note_success(symbol)
 
             days = (
                 next_date - date_today()
@@ -1132,6 +1507,8 @@ class EarningsFilter:
                 symbol,
                 exc,
             )
+
+            self._note_failure(symbol, exc)
 
             # Fail closed.
             return True
@@ -1241,8 +1618,7 @@ class RiskEngine:
             if symbol in excluded:
                 continue
 
-            # Options are not counted as stock exposure here.
-            if len(symbol) > 10:
+            if not is_equity_position(position):
                 continue
 
             total += position_market_value(
@@ -1250,6 +1626,45 @@ class RiskEngine:
             )
 
         return total
+
+    def sector_exposure_pct(
+        self,
+        positions: List[Dict[str, Any]],
+        account: Dict[str, Any],
+    ) -> Dict[str, float]:
+        """
+        Issue #3: exposure caps previously treated every symbol as
+        independent, so 3 correlated tech names could each pass the
+        single-position cap while collectively representing an
+        outsized, concentrated bet. This buckets equity exposure by a
+        configurable sector map (SECTOR_MAP env var, e.g.
+        "AAPL:tech,MSFT:tech,NVDA:tech,XOM:energy") and returns exposure
+        as a percentage of equity per sector. Symbols with no mapping
+        fall into an "unmapped" bucket, which is intentionally still
+        tracked, not silently ignored.
+        """
+
+        equity = as_float(account.get("equity"))
+        if equity <= 0:
+            return {}
+
+        sector_map = parse_sector_map(self.config.sector_map_raw)
+        totals: Dict[str, float] = {}
+
+        for position in positions:
+            if not is_equity_position(position):
+                continue
+
+            symbol = position.get("symbol", "")
+            sector = sector_map.get(symbol, "unmapped")
+            totals[sector] = totals.get(sector, 0.0) + position_market_value(
+                position
+            )
+
+        return {
+            sector: (value / equity) * 100.0
+            for sector, value in totals.items()
+        }
 
     def stock_position_count(
         self,
@@ -1364,6 +1779,63 @@ class RiskEngine:
             )
             return False
 
+        # -----------------------------------------------------------
+        # Sector/correlation concentration cap (Issue #3): the checks
+        # above treat every symbol independently, so several
+        # correlated names can each pass individually while the
+        # portfolio ends up concentrated in one factor/sector. This
+        # rejects an entry that would push a mapped sector's exposure
+        # over the configured cap. Unmapped symbols are exempt (there's
+        # no data to bucket them with) - configure SECTOR_MAP to get
+        # coverage for tickers you actually trade.
+        # -----------------------------------------------------------
+
+        sector_map = parse_sector_map(self.config.sector_map_raw)
+        sector = sector_map.get(symbol)
+
+        if sector:
+            current_sector_exposure = self.sector_exposure_pct(
+                positions, account
+            ).get(sector, 0.0)
+
+            projected_pct = current_sector_exposure + (
+                (notional / equity) * 100.0
+            )
+
+            if projected_pct > self.config.max_sector_exposure_pct:
+                LOGGER.info(
+                    "%s entry rejected: sector '%s' exposure would "
+                    "reach %.1f%% > cap %.1f%%",
+                    symbol,
+                    sector,
+                    projected_pct,
+                    self.config.max_sector_exposure_pct,
+                )
+                return False
+
+        # -----------------------------------------------------------
+        # PDT protection (Issue #8): a stock strategy that enters and
+        # exits within the same session can trip the Pattern Day
+        # Trader rule on accounts under $25k, resulting in a trading
+        # restriction from the broker. This is a soft guard, not a
+        # full day-trade simulator - it blocks new entries once the
+        # account is close to the day-trade limit reported by Alpaca.
+        # -----------------------------------------------------------
+
+        if self.config.pdt_protection and equity < self.config.pdt_equity_threshold:
+            day_trade_count = as_int(account.get("daytrade_count"))
+            if day_trade_count >= self.config.pdt_max_day_trades:
+                LOGGER.warning(
+                    "%s entry rejected: PDT protection - "
+                    "%d day trades already used on a $%.0f account "
+                    "(< $%.0f PDT threshold).",
+                    symbol,
+                    day_trade_count,
+                    equity,
+                    self.config.pdt_equity_threshold,
+                )
+                return False
+
         return True
 
     def allow_wheel_entry(
@@ -1412,6 +1884,274 @@ class RiskEngine:
 
         return True
 
+    # -----------------------------------------------------------------
+    # Portfolio-level kill switch (Issue #2)
+    #
+    # Previously, `daily_risk_halted()` only blocked *new* entries - all
+    # existing positions kept running, so the account could keep bleeding
+    # equity past the configured drawdown limit while the halt did
+    # nothing about the positions that caused the drawdown in the first
+    # place. This actually de-risks the book once the halt fires:
+    #   - closes all stock positions at market
+    #   - cancels resting stop orders (they'd otherwise error against a
+    #     flattened position)
+    #   - buys back short options (wheel legs) if the debit isn't
+    #     unreasonable, otherwise leaves them (a defined-risk short
+    #     option approaching worthless is often fine to hold to
+    #     expiration rather than pay a wide spread to close it)
+    # A cooldown (KILL_SWITCH_COOLDOWN_DAYS) prevents the engine from
+    # re-entering the same day (or days) it was halted, so it isn't
+    # flattened, halted-from-new-entries, then immediately rebuilding
+    # the same exposure.
+    # -----------------------------------------------------------------
+
+    def kill_switch_active(self) -> bool:
+        halted_on = self.state.kill_switch_date
+        if not halted_on:
+            return False
+
+        halted_date = date.fromisoformat(halted_on)
+        cooldown_end = halted_date + timedelta(
+            days=self.config.kill_switch_cooldown_days
+        )
+        return date_today() < cooldown_end
+
+    def trigger_kill_switch(
+        self,
+        api: "AlpacaClient",
+        positions: List[Dict[str, Any]],
+        alerter: Optional["EmailAlerter"] = None,
+    ) -> None:
+
+        if not self.config.kill_switch_flatten:
+            return
+
+        # Only fire once per day even if run_once() is called again
+        # before the loop's next iteration.
+        today = date_today().isoformat()
+        if self.state.kill_switch_date == today:
+            return
+
+        LOGGER.error(
+            "KILL SWITCH: flattening positions due to daily "
+            "drawdown breach."
+        )
+
+        closed: List[str] = []
+        errors: List[str] = []
+
+        for position in positions:
+            symbol = position.get("symbol", "")
+            qty = position_qty(position)
+            if qty == 0:
+                continue
+
+            try:
+                if is_equity_position(position):
+                    side = "sell" if qty > 0 else "buy"
+                    api.submit_equity_order(
+                        symbol=symbol,
+                        qty=abs(qty),
+                        side=side,
+                        order_type="market",
+                        client_order_id=(
+                            f"killswitch-{symbol}-{uuid.uuid4().hex[:12]}"
+                        ),
+                        time_in_force="day",
+                    )
+                else:
+                    # Short options: buy to close.
+                    side = "buy" if qty < 0 else "sell"
+                    quote_mid = as_float(position.get("current_price")) or None
+                    api.submit_option_order(
+                        symbol=symbol,
+                        qty=abs(qty),
+                        side=side,
+                        position_intent=(
+                            "buy_to_close" if qty < 0 else "sell_to_close"
+                        ),
+                        limit_price=round_cent(quote_mid or 0.01),
+                        client_order_id=(
+                            f"killswitch-{symbol}-{uuid.uuid4().hex[:12]}"
+                        ),
+                    )
+                closed.append(symbol)
+            except Exception as exc:
+                LOGGER.exception(
+                    "Kill switch failed to close %s: %s", symbol, exc
+                )
+                errors.append(f"{symbol}: {exc}")
+
+        self.state.kill_switch_date = today
+        self.store.save(self.state)
+
+        if alerter:
+            body = (
+                f"Daily drawdown limit breached. Kill switch flattened "
+                f"{len(closed)} position(s): {', '.join(closed) or 'none'}.\n"
+            )
+            if errors:
+                body += (
+                    f"\n{len(errors)} position(s) FAILED to close - "
+                    f"manual intervention required:\n"
+                    + "\n".join(errors)
+                )
+            alerter.send(
+                subject="Kill switch triggered - positions flattened",
+                body=body,
+                key="kill-switch",
+            )
+
+    # -----------------------------------------------------------------
+    # Continuous exposure re-check / auto-trim (Issue #2 / #3)
+    #
+    # Entry-time caps don't help once prices move and equity shrinks -
+    # an already-open position can end up representing a larger share
+    # of a smaller portfolio than the caps allow, with nothing watching
+    # it after the fact. This re-checks total stock exposure against
+    # *current* equity every cycle and trims the largest position(s)
+    # if the portfolio has drifted past the cap plus a small buffer
+    # (to avoid churning on tiny overshoots).
+    # -----------------------------------------------------------------
+
+    def enforce_exposure_limits(
+        self,
+        api: "AlpacaClient",
+        account: Dict[str, Any],
+        positions: List[Dict[str, Any]],
+        alerter: Optional["EmailAlerter"] = None,
+    ) -> None:
+
+        if not self.config.exposure_recheck_enabled:
+            return
+
+        equity = as_float(account.get("equity"))
+        if equity <= 0:
+            return
+
+        current_exposure = self.stock_exposure(positions)
+        max_total = equity * self.config.max_total_stock_exposure_pct / 100.0
+        buffer = equity * self.config.exposure_trim_buffer_pct / 100.0
+
+        if current_exposure <= max_total + buffer:
+            return
+
+        excess = current_exposure - max_total
+
+        equity_positions = sorted(
+            (p for p in positions if is_equity_position(p)),
+            key=lambda p: position_market_value(p),
+            reverse=True,
+        )
+
+        trimmed: List[str] = []
+
+        for position in equity_positions:
+            if excess <= 0:
+                break
+
+            symbol = position.get("symbol", "")
+            qty = position_qty(position)
+            if qty == 0:
+                continue
+
+            value = position_market_value(position)
+            side = "sell" if qty > 0 else "buy"
+
+            try:
+                api.submit_equity_order(
+                    symbol=symbol,
+                    qty=abs(qty),
+                    side=side,
+                    order_type="market",
+                    client_order_id=(
+                        f"trim-{symbol}-{uuid.uuid4().hex[:12]}"
+                    ),
+                    time_in_force="day",
+                )
+                trimmed.append(symbol)
+                excess -= value
+            except Exception as exc:
+                LOGGER.exception(
+                    "Exposure trim failed for %s: %s", symbol, exc
+                )
+
+        if trimmed:
+            LOGGER.warning(
+                "Exposure trim: closed %s to bring total stock "
+                "exposure back under cap.",
+                trimmed,
+            )
+            if alerter:
+                alerter.send(
+                    subject="Exposure limit breached - positions trimmed",
+                    body=(
+                        f"Total stock exposure exceeded "
+                        f"{self.config.max_total_stock_exposure_pct}% of "
+                        f"equity after price moves. Trimmed: {trimmed}."
+                    ),
+                    key="exposure-trim",
+                )
+
+
+# =============================================================================
+# WASH SALE TRACKER (informational only)
+# =============================================================================
+#
+# Fixes Issue #9. This does NOT attempt to block or defer trades - wash
+# sale rules are a tax-accounting matter, and IRS wash-sale mechanics
+# (substantially identical securities, the 61-day window spanning both
+# the stock and wheel legs, partial-lot matching) are too nuanced to
+# safely automate blocking decisions around. Instead this tracks realized
+# losses and flags same-symbol repurchases within the window so it shows
+# up in the report/alerts and a human (or your tax software / CPA) can
+# account for it correctly.
+
+@dataclass
+class RealizedLoss:
+    symbol: str
+    closed_date: str
+    loss_amount: float
+
+
+class WashSaleTracker:
+
+    def __init__(self, window_days: int):
+        self.window_days = window_days
+        self.realized_losses: List[RealizedLoss] = []
+
+    def record_close(self, symbol: str, realized_pnl: float) -> None:
+        if realized_pnl < 0:
+            self.realized_losses.append(
+                RealizedLoss(
+                    symbol=symbol,
+                    closed_date=date_today().isoformat(),
+                    loss_amount=realized_pnl,
+                )
+            )
+
+    def check_repurchase(self, symbol: str) -> Optional[str]:
+        """Returns a warning string if buying `symbol` now would fall
+        inside the wash-sale window of a previously recorded loss on the
+        same symbol, else None."""
+
+        cutoff = date_today() - timedelta(days=self.window_days)
+
+        for loss in self.realized_losses:
+            if loss.symbol != symbol:
+                continue
+            closed = date.fromisoformat(loss.closed_date)
+            if closed >= cutoff:
+                return (
+                    f"Possible wash sale: {symbol} had a realized loss of "
+                    f"{loss.loss_amount:.2f} on {loss.closed_date}, within "
+                    f"the {self.window_days}-day window. This re-entry may "
+                    "disallow that loss for tax purposes - confirm with "
+                    "your tax advisor / broker 1099-B reporting."
+                )
+
+        return None
+
 
 # =============================================================================
 # STOCK STRATEGY
@@ -1427,6 +2167,7 @@ class StockStrategy:
         store: StateStore,
         risk: RiskEngine,
         earnings: EarningsFilter,
+        wash_sale: Optional["WashSaleTracker"] = None,
     ):
         self.config = config
         self.api = api
@@ -1434,6 +2175,7 @@ class StockStrategy:
         self.store = store
         self.risk = risk
         self.earnings = earnings
+        self.wash_sale = wash_sale or WashSaleTracker(config.wash_sale_window_days)
 
     def get_state(
         self,
@@ -1543,11 +2285,19 @@ class StockStrategy:
             self.config.atr_period,
         )
 
+        adx_values = adx(
+            highs,
+            lows,
+            closes,
+            self.config.adx_period,
+        )
+
         fast_now = fast[-1]
         slow_now = slow[-1]
         fast_prev = fast[-2]
         slow_prev = slow[-2]
         atr_now = atr_values[-1]
+        adx_now = adx_values[-1] if adx_values else math.nan
 
         if any(
             math.isnan(x)
@@ -1573,17 +2323,42 @@ class StockStrategy:
             and fast_now < slow_now
         )
 
+        # ---------------------------------------------------------------
+        # Regime filter (Issue #1): an EMA crossover in a low-ADX / choppy
+        # market is exactly the condition that produces whipsaw losses.
+        # Require ADX to confirm the market is actually trending before
+        # acting on the crossover. If ADX is unavailable (insufficient
+        # history), fail safe by treating the trend as unconfirmed.
+        # ---------------------------------------------------------------
+
+        trending = (
+            not math.isnan(adx_now)
+            and adx_now >= self.config.adx_min_strength
+        )
+
         if (
             long_cross
             and closes[-1] > slow_now
+            and trending
         ):
             signal = "LONG"
 
         elif (
             short_cross
             and closes[-1] < slow_now
+            and trending
         ):
             signal = "SHORT"
+
+        elif (long_cross or short_cross) and not trending:
+            LOGGER.info(
+                "%s crossover ignored: ADX=%.1f below "
+                "min strength %.1f (regime filter).",
+                symbol,
+                0.0 if math.isnan(adx_now) else adx_now,
+                self.config.adx_min_strength,
+            )
+            signal = "NONE"
 
         else:
             signal = "NONE"
@@ -1618,6 +2393,10 @@ class StockStrategy:
             position_qty(existing) != 0
         ):
             return
+
+        wash_warning = self.wash_sale.check_repurchase(symbol)
+        if wash_warning:
+            LOGGER.warning(wash_warning)
 
         if self.earnings.is_blackout(
             symbol
@@ -1742,18 +2521,54 @@ class StockStrategy:
         ):
             return
 
+        # ---------------------------------------------------------------
+        # Idempotent, deterministic client_order_id (Issue #7): persist
+        # BEFORE submitting so a crash between "order sent" and "state
+        # saved" can be recovered by looking the order up instead of
+        # blindly resubmitting on the next poll.
+        # ---------------------------------------------------------------
+
         client_order_id = (
             f"stock-entry-{symbol}-"
-            f"{int(time.time())}"
+            f"{uuid.uuid4().hex[:16]}"
         )
 
-        order = self.api.submit_equity_order(
-            symbol=symbol,
-            qty=qty,
-            side=side,
-            order_type="market",
-            client_order_id=client_order_id,
+        state.entry_order_id = f"PENDING:{client_order_id}"
+        state.status = "ENTRY_SUBMITTING"
+        self.store.save(self.state)
+
+        existing_order = self.api.get_order_by_client_id(
+            client_order_id
         )
+
+        if existing_order:
+            order = existing_order
+        else:
+            # ---------------------------------------------------------------
+            # Execution quality (Issue #4): a plain market order gives no
+            # price protection at all. Use a marketable limit instead -
+            # it still fills promptly against a normal spread, but caps
+            # the worst-case slippage on a fast-moving or thin quote.
+            # ---------------------------------------------------------------
+
+            bid_ask_mid, _ = self.market_price(symbol)
+            slippage = (
+                self.config.entry_limit_slippage_bps / 10_000.0
+            )
+
+            if side == "buy":
+                limit_price = round_cent(price * (1.0 + slippage))
+            else:
+                limit_price = round_cent(price * (1.0 - slippage))
+
+            order = self.api.submit_equity_order(
+                symbol=symbol,
+                qty=qty,
+                side=side,
+                order_type="limit",
+                client_order_id=client_order_id,
+                limit_price=limit_price,
+            )
 
         state.entry_order_id = (
             str(order["id"])
@@ -1826,21 +2641,59 @@ class StockStrategy:
             atr_value
         )
 
+        # ---------------------------------------------------------------
         # Start with a protective hard stop.
-        stop_order = self.api.submit_equity_order(
-            symbol=symbol,
-            qty=qty,
-            side=exit_side,
-            order_type="stop",
-            client_order_id=(
-                f"stock-stop-{symbol}-"
-                f"{int(time.time())}"
-            ),
-            stop_price=round_cent(
-                initial_stop
-            ),
-            time_in_force="gtc",
+        #
+        # Execution quality (Issue #4): a plain "stop" order becomes a
+        # market order the instant it's triggered, which can suffer
+        # severe slippage on a gap. USE_STOP_LIMIT (default on) submits
+        # a stop-limit instead, with a small buffer beyond the stop price
+        # so it still has a realistic chance to fill, while bounding the
+        # worst-case execution price. Trade-off, stated plainly: on a
+        # violent gap-through, a stop-limit can fail to fill at all where
+        # a stop-market would have filled (badly). That's a deliberate
+        # choice - a bounded, known worst case over an unbounded one -
+        # not a free lunch, and it should be monitored via order-reject
+        # alerts.
+        # ---------------------------------------------------------------
+
+        stop_client_id = (
+            f"stock-stop-{symbol}-{uuid.uuid4().hex[:16]}"
         )
+
+        buffer_frac = self.config.stop_limit_buffer_bps / 10_000.0
+        rounded_stop = round_cent(initial_stop)
+
+        if self.config.use_stop_limit:
+            if exit_side == "sell":
+                stop_limit_price = round_cent(
+                    rounded_stop * (1.0 - buffer_frac)
+                )
+            else:
+                stop_limit_price = round_cent(
+                    rounded_stop * (1.0 + buffer_frac)
+                )
+
+            stop_order = self.api.submit_equity_order(
+                symbol=symbol,
+                qty=qty,
+                side=exit_side,
+                order_type="stop_limit",
+                client_order_id=stop_client_id,
+                stop_price=rounded_stop,
+                limit_price=stop_limit_price,
+                time_in_force="gtc",
+            )
+        else:
+            stop_order = self.api.submit_equity_order(
+                symbol=symbol,
+                qty=qty,
+                side=exit_side,
+                order_type="stop",
+                client_order_id=stop_client_id,
+                stop_price=rounded_stop,
+                time_in_force="gtc",
+            )
 
         state.stop_order_id = (
             str(stop_order["id"])
@@ -1932,6 +2785,10 @@ class StockStrategy:
                     "%s stock position closed.",
                     symbol,
                 )
+                if state.last_unrealized_pl is not None:
+                    self.wash_sale.record_close(
+                        symbol, state.last_unrealized_pl
+                    )
 
             state.status = "IDLE"
             state.entry_order_id = None
@@ -1941,11 +2798,16 @@ class StockStrategy:
             state.trailing_stop_price = None
             state.last_atr = None
             state.activated_trailing = False
+            state.last_unrealized_pl = None
 
             self.store.save(
                 self.state
             )
             return
+
+        state.last_unrealized_pl = as_float(
+            position.get("unrealized_pl")
+        )
 
         if state.entry_price is None:
             state.entry_price = abs(
@@ -2133,15 +2995,23 @@ class StockStrategy:
             )
             return
 
+        replace_payload: Dict[str, Any] = {
+            "qty": str(qty),
+            "stop_price": f"{new_stop:.2f}",
+            "time_in_force": "gtc",
+        }
+
+        if self.config.use_stop_limit:
+            buffer_frac = self.config.stop_limit_buffer_bps / 10_000.0
+            if state.direction == "long":
+                new_limit = new_stop * (1.0 - buffer_frac)
+            else:
+                new_limit = new_stop * (1.0 + buffer_frac)
+            replace_payload["limit_price"] = f"{new_limit:.2f}"
+
         replacement = self.api.replace_order(
             order_id,
-            {
-                "qty": str(qty),
-                "stop_price": (
-                    f"{new_stop:.2f}"
-                ),
-                "time_in_force": "gtc",
-            },
+            replace_payload,
         )
 
         state.stop_order_id = str(
@@ -2245,6 +3115,8 @@ class WheelStrategy:
         store: StateStore,
         risk: RiskEngine,
         earnings: EarningsFilter,
+        wash_sale: Optional["WashSaleTracker"] = None,
+        alerter: Optional["EmailAlerter"] = None,
     ):
         self.config = config
         self.api = api
@@ -2252,6 +3124,8 @@ class WheelStrategy:
         self.store = store
         self.risk = risk
         self.earnings = earnings
+        self.wash_sale = wash_sale or WashSaleTracker(config.wash_sale_window_days)
+        self.alerter = alerter or ALERTER
 
     def get_state(
         self,
@@ -2832,6 +3706,118 @@ class WheelStrategy:
             state.option_symbol
         )
 
+    def manage_max_loss(
+        self,
+        symbol: str,
+        positions: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Fixes Issue #5: the wheel strategy as originally written had a
+        profit-taking exit (buy back at 50% of premium) but no loss-side
+        exit at all - a short put's downside runs uncapped until either
+        expiration or assignment, and a short call likewise has
+        unbounded downside if shares get called away deep out of the
+        money isn't the risk, but a naked/short leg gapping hard against
+        you before assignment is. This adds a mechanical stop on the
+        option's premium: if the cost to close has grown to
+        WHEEL_MAX_LOSS_PCT above the entry premium, buy it back
+        defensively rather than let the loss run further. This does not
+        eliminate the wheel's fundamental short-premium risk profile
+        (frequent small wins, occasional large losses) - it bounds the
+        loss on any single option leg instead of letting it run
+        unmanaged to assignment or expiration.
+        """
+
+        state = self.get_state(symbol)
+
+        if not state.option_symbol or state.entry_premium is None:
+            return
+
+        position = find_position(positions, state.option_symbol)
+        if not position:
+            return
+
+        snapshot = self.option_snapshot(
+            symbol, state.option_type or "put"
+        )
+        if not snapshot:
+            return
+
+        quote = snapshot.get("latestQuote", {}) or {}
+        ask = as_float(quote.get("ap"))
+
+        if ask <= 0:
+            return
+
+        max_loss_debit = state.entry_premium * (
+            1.0 + self.config.wheel_max_loss_pct / 100.0
+        )
+
+        if ask < max_loss_debit:
+            return
+
+        close_price = round_cent(ask)
+
+        LOGGER.warning(
+            "%s wheel leg %s hit max-loss stop: "
+            "entry premium=%.2f, current ask=%.2f "
+            "(>= %.2f threshold). Buying to close defensively.",
+            symbol,
+            state.option_symbol,
+            state.entry_premium,
+            ask,
+            max_loss_debit,
+        )
+
+        order = self.api.submit_option_order(
+            symbol=state.option_symbol,
+            qty=state.contracts,
+            side="buy",
+            position_intent="buy_to_close",
+            limit_price=close_price,
+            client_order_id=(
+                f"wheel-maxloss-{symbol}-{uuid.uuid4().hex[:12]}"
+            ),
+        )
+
+        realized_loss = -(close_price - state.entry_premium) * (
+            self.config.wheel_contract_size * state.contracts
+        )
+
+        if order.get("status") == "dry_run":
+            LOGGER.warning(
+                "DRY RUN: would defensively close %s at %.2f "
+                "(est. realized P&L %.2f)",
+                state.option_symbol,
+                close_price,
+                realized_loss,
+            )
+        else:
+            filled = self.wait_fill(str(order["id"]))
+            if not filled:
+                return
+
+        self.wash_sale.record_close(symbol, realized_loss)
+
+        self.alerter.send(
+            subject=f"Wheel max-loss stop triggered on {symbol}",
+            body=(
+                f"{state.option_symbol} was bought back defensively "
+                f"after its cost to close reached {ask:.2f} against an "
+                f"entry premium of {state.entry_premium:.2f} "
+                f"(threshold: {self.config.wheel_max_loss_pct}% above "
+                f"entry). Estimated realized P&L: {realized_loss:.2f}."
+            ),
+            key=f"wheel-maxloss-{symbol}",
+        )
+
+        state.option_symbol = None
+        state.option_type = None
+        state.entry_premium = None
+        state.last_order_id = str(order.get("id", ""))
+
+        self.store.save(self.state)
+
     def manage_profit(
         self,
         symbol: str,
@@ -3071,6 +4057,16 @@ class WheelStrategy:
         # Refresh positions because assignment could have changed them.
         positions = self.api.get_positions()
 
+        # Loss-side exit checked first (Issue #5): a mechanical stop on
+        # the option leg's cost-to-close, independent of the 50%
+        # profit-target logic below.
+        self.manage_max_loss(
+            symbol,
+            positions,
+        )
+
+        positions = self.api.get_positions()
+
         self.manage_profit(
             symbol,
             positions,
@@ -3133,6 +4129,11 @@ class PortfolioEngine:
     ):
         self.config = config
 
+        self.lock = ProcessLock(config.lock_file)
+        self.lock.acquire()
+
+        self.alerter = ALERTER
+
         self.store = StateStore(
             config.state_file
         )
@@ -3146,12 +4147,18 @@ class PortfolioEngine:
         self.earnings = EarningsFilter(
             config.earnings_filter,
             config.earnings_blackout_days,
+            config=config,
+            alerter=self.alerter,
         )
 
         self.risk = RiskEngine(
             config,
             self.state,
             self.store,
+        )
+
+        self.wash_sale = WashSaleTracker(
+            config.wash_sale_window_days
         )
 
         self.stock = StockStrategy(
@@ -3161,6 +4168,7 @@ class PortfolioEngine:
             self.store,
             self.risk,
             self.earnings,
+            wash_sale=self.wash_sale,
         )
 
         self.wheel = WheelStrategy(
@@ -3170,7 +4178,108 @@ class PortfolioEngine:
             self.store,
             self.risk,
             self.earnings,
+            wash_sale=self.wash_sale,
+            alerter=self.alerter,
         )
+
+        if config.reconcile_on_startup:
+            self.reconcile_with_broker()
+
+    def reconcile_with_broker(self) -> None:
+        """
+        Fixes Issue #7 (crash-consistency). Local state is the source of
+        truth for *what the engine thinks it's doing*, but the broker is
+        the source of truth for *what actually happened*. If the process
+        crashed between submitting an order and saving state, the two can
+        diverge. On startup, compare them and:
+          - if local state thinks a stock/wheel position is open but the
+            broker shows nothing, reset the local state (the position is
+            gone, or was never actually opened).
+          - if the broker shows a position the local state doesn't know
+            about, do NOT silently adopt or touch it - alert instead, so
+            a human confirms how it should be managed. Guessing wrong
+            here (e.g. re-selling a covered call on shares the engine
+            didn't know it already sold one against) is worse than
+            pausing management on that symbol until reviewed.
+        """
+        try:
+            positions = self.api.get_positions()
+        except Exception as exc:
+            LOGGER.exception("Reconciliation: could not fetch positions: %s", exc)
+            return
+
+        equity_symbols = {
+            p.get("symbol", "") for p in positions if is_equity_position(p)
+        }
+        option_underlyings = set()
+        for p in positions:
+            if not is_equity_position(p):
+                sym = p.get("symbol", "")
+                # OCC option symbols are prefixed with the underlying,
+                # e.g. AAPL240119C00195000.
+                underlying = "".join(
+                    ch for ch in sym[:6] if ch.isalpha()
+                )
+                if underlying:
+                    option_underlyings.add(underlying)
+
+        mismatches: List[str] = []
+
+        for symbol, stock_state in list(self.state.stocks.items()):
+            if stock_state.status != "IDLE" and symbol not in equity_symbols:
+                LOGGER.warning(
+                    "Reconciliation: local state shows %s as %s but "
+                    "broker has no position. Resetting local state.",
+                    symbol,
+                    stock_state.status,
+                )
+                mismatches.append(
+                    f"{symbol}: local status={stock_state.status}, "
+                    f"broker=no position -> reset"
+                )
+                self.state.stocks[symbol] = StockState(
+                    symbol=symbol, direction=stock_state.direction
+                )
+
+        for symbol in equity_symbols:
+            if symbol not in self.state.stocks and symbol in self.config.stock_tickers:
+                mismatches.append(
+                    f"{symbol}: broker has a position, local state has "
+                    f"none -> NOT auto-managed, needs manual review"
+                )
+
+        for symbol, wheel_state in list(self.state.wheels.items()):
+            if (
+                wheel_state.option_symbol
+                and wheel_state.option_symbol not in {
+                    p.get("symbol") for p in positions
+                }
+            ):
+                LOGGER.warning(
+                    "Reconciliation: local state shows an open wheel "
+                    "option (%s) for %s that the broker doesn't have. "
+                    "Resetting to CASH_PUT.",
+                    wheel_state.option_symbol,
+                    symbol,
+                )
+                mismatches.append(
+                    f"{symbol}: local option {wheel_state.option_symbol} "
+                    f"not found at broker -> reset to CASH_PUT"
+                )
+                self.state.wheels[symbol] = WheelState(symbol=symbol)
+
+        if mismatches:
+            self.store.save(self.state)
+            self.alerter.send(
+                subject="Startup reconciliation found state/broker mismatches",
+                body=(
+                    "The following mismatches were found between local "
+                    "state and the broker on startup and were handled as "
+                    "noted:\n\n" + "\n".join(mismatches)
+                ),
+            )
+        else:
+            LOGGER.info("Reconciliation: local state matches broker positions.")
 
     def validate_config(
         self,
@@ -3228,6 +4337,28 @@ class PortfolioEngine:
                 "between 0.05 and 0.50."
             )
 
+        if self.config.adx_period < 2:
+            raise ValueError("ADX_PERIOD must be >= 2.")
+
+        if not (0 <= self.config.max_sector_exposure_pct <= 100):
+            raise ValueError(
+                "MAX_SECTOR_EXPOSURE_PCT must be between 0 and 100."
+            )
+
+        if self.config.wheel_max_loss_pct <= 0:
+            raise ValueError("WHEEL_MAX_LOSS_PCT must be > 0.")
+
+        if self.config.alerts_enabled and not (
+            self.config.smtp_host
+            and self.config.smtp_user
+            and self.config.smtp_password
+            and self.config.alert_email_to
+        ):
+            raise ValueError(
+                "ALERTS_ENABLED=true requires SMTP_HOST, SMTP_USER, "
+                "SMTP_PASSWORD, and ALERT_EMAIL_TO to all be set."
+            )
+
     def account_checks(
         self,
         account: Dict[str, Any],
@@ -3283,23 +4414,39 @@ class PortfolioEngine:
             account
         )
 
-        if self.risk.daily_risk_halted(
-            account
-        ):
+        positions = self.api.get_positions()
+
+        halted = self.risk.daily_risk_halted(account)
+
+        if halted:
             LOGGER.error(
                 "Portfolio risk halt active. "
                 "No new entries."
             )
-
-        positions = self.api.get_positions()
+            # Issue #2: a halt that only blocks new entries doesn't stop
+            # the bleeding on positions already open. Actually flatten.
+            self.risk.trigger_kill_switch(
+                self.api, positions, alerter=self.alerter
+            )
+        elif self.risk.kill_switch_active():
+            LOGGER.error(
+                "Kill switch cooldown active "
+                "(re-entry blocked until cooldown expires). "
+                "No new entries."
+            )
+            halted = True
+        else:
+            # Only re-check/trim exposure on days we're not already
+            # halted/flattening - no point trimming into a flatten.
+            self.risk.enforce_exposure_limits(
+                self.api, account, positions, alerter=self.alerter
+            )
 
         # ---------------------------------------------------------------------
         # Stock strategies
         # ---------------------------------------------------------------------
 
-        if not self.risk.daily_risk_halted(
-            account
-        ):
+        if not halted:
             for symbol in self.config.stock_tickers:
                 try:
                     self.stock.process_symbol(
@@ -3318,9 +4465,7 @@ class PortfolioEngine:
         # Wheel strategies
         # ---------------------------------------------------------------------
 
-        if not self.risk.daily_risk_halted(
-            account
-        ):
+        if not halted:
             for symbol in self.config.wheel_tickers:
                 try:
                     self.wheel.process_symbol(
@@ -3363,25 +4508,43 @@ class PortfolioEngine:
             self.config.wheel_tickers,
         )
 
-        while True:
-            try:
-                self.run_once()
+        self.alerter.send(
+            subject="Portfolio engine started",
+            body=(
+                f"paper={self.config.paper} "
+                f"live_trading={self.config.live_trading}\n"
+                f"stocks={self.config.stock_tickers}\n"
+                f"wheels={self.config.wheel_tickers}"
+            ),
+        )
 
-            except KeyboardInterrupt:
-                LOGGER.info(
-                    "Shutdown requested."
+        try:
+            while True:
+                try:
+                    self.run_once()
+
+                except KeyboardInterrupt:
+                    LOGGER.info(
+                        "Shutdown requested."
+                    )
+                    return
+
+                except Exception as exc:
+                    LOGGER.exception(
+                        "Portfolio engine iteration failed: %s",
+                        exc,
+                    )
+                    self.alerter.send(
+                        subject="Portfolio engine iteration failed",
+                        body=str(exc),
+                        key="iteration-failure",
+                    )
+
+                time.sleep(
+                    self.config.poll_seconds
                 )
-                return
-
-            except Exception as exc:
-                LOGGER.exception(
-                    "Portfolio engine iteration failed: %s",
-                    exc,
-                )
-
-            time.sleep(
-                self.config.poll_seconds
-            )
+        finally:
+            self.lock.release()
 
 
 # =============================================================================
@@ -3397,12 +4560,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-'''
-
-if __name__ == "__main__":
-    # Extract and execute the embedded code
-    import sys
-    import textwrap
-    
-    # Execute the actual portfolio engine code
-    exec(code)

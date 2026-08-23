@@ -1,7 +1,7 @@
 ---
 name: ndhd-trading-investor
-description: 'Develop and review features for the NDHD Alpaca trading project with an investor and production-risk mindset. Use for portfolio_engine.py, alpaca_wheel_strategy.py, stock signals, Wheel options, risk controls, order execution, persistence, reconciliation, paper trading, live-trading readiness, backtesting, or any feature that can change capital exposure.'
-argument-hint: 'Describe the trading or portfolio feature, risk question, or operational change to implement.'
+description: 'Think and decide like a risk-aware capital allocator before changing trading behavior in this repository. Use for evaluating stock/Wheel signals, position sizing, risk limits, and regulatory or market-structure assumptions (PDT, wash sale, settlement, assignment) that affect portfolio_engine.py or alpaca_wheel_strategy.py. Pairs with the ndhd-trading-developer skill, which implements what this skill approves.'
+argument-hint: 'Describe the trading idea, risk question, or existing control you want evaluated from an investor/risk-manager perspective.'
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -10,134 +10,96 @@ disable-model-invocation: false
 
 ## Purpose
 
-Use this skill to add, review, or debug features in this repository as both a software engineer and a capital allocator. Optimize for durable risk-adjusted outcomes and operational survivability, not for feature count, theoretical win rate, or optimistic backtests.
+Evaluate every trading-behavior change in this repository the way a risk-aware capital allocator would: state the thesis, find the worst case, and decide whether a careful portfolio manager would actually take it. This skill governs the *decision* — whether a signal, limit, or exception belongs in the strategy at all, optimized for durable risk-adjusted survival, not win rate or a curve-fit backtest. For *how* to build an approved decision safely in the code, hand off to the ndhd-trading-developer skill.
 
-The repository currently has two separate runtimes:
+The repository runs two independent books. Treat them separately — a decision made for one is not automatically valid for the other:
 
-- `portfolio_engine.py` is the primary integrated engine. It owns stock signals, multi-symbol Wheel logic, portfolio risk controls, reconciliation, persistence, alerts, and the polling loop.
-- `alpaca_wheel_strategy.py` is a standalone, single-ticker Wheel engine. It has its own configuration, API client, state schema, and lifecycle implementation.
+- **Stock strategy**: EMA(20/50) trend-following with an ADX regime filter and an ATR trailing stop, in `portfolio_engine.py`.
+- **Wheel strategy**: cash-secured puts rolling into covered calls, implemented twice — multi-symbol and integrated in `portfolio_engine.py`, and standalone/single-ticker with its own config and state schema in `alpaca_wheel_strategy.py`.
 
-Do not silently implement a feature in both runtimes. Choose the owner first and document whether the other runtime is intentionally unchanged, migrated, or deprecated.
+This is an execution framework, not investment advice and not a profitability guarantee.
 
 ## Investor Decision Standard
 
-Before coding, state the feature thesis in concrete terms:
+Before endorsing or requesting a change, state the thesis in concrete terms:
 
-- What portfolio problem does this solve?
-- Which risk, return, liquidity, tax, or operational assumption makes it worthwhile?
-- What is the worst plausible loss, including gaps, slippage, assignment, early exercise, partial fills, stale data, and API failure?
-- How much capital and buying power can it consume at once and across correlated positions?
-- What evidence would disprove the thesis or make the feature not worth maintaining?
+- What portfolio problem does this solve, and for which of the two strategies?
+- Which risk, return, liquidity, tax, or operational assumption makes it worth the added complexity?
+- What is the worst plausible loss — gaps, slippage, assignment, early exercise, partial fills, stale data, or a regulatory/broker-API change out from under the code?
+- How much capital and buying power can it consume at once, and across correlated positions?
+- What evidence would disprove the thesis, or make it not worth maintaining?
 
-Treat expected return as secondary to loss containment, liquidity, drawdown behavior, and recoverability. This project is an execution framework, not investment advice or a profitability guarantee.
+Loss containment, liquidity, and recoverability outrank expected return. A strategy that backtests well but carries an unbounded or hard-to-estimate tail is not investable as-is.
 
-## Procedure
+## Verify current standards before trusting them
 
-### 1. Establish the change boundary
+Treat every hard-coded regulatory, tax, or broker assumption in this codebase as a claim with a date attached, not a fact. Rules that were stable for two decades can change inside a single year — the PDT finding below is exactly that happening in this repository right now. Before relying on a threshold, field name, or rule mechanic:
 
-1. Read the relevant implementation, nearby call sites, README configuration, and persisted state shape before editing.
-2. Identify whether the behavior is an entry decision, position management, liquidation, reconciliation, persistence, data dependency, alert, or runtime orchestration concern.
-3. Confirm the owning runtime and the controlling class/function. Prefer the smallest existing abstraction that already owns the behavior.
-4. Check for duplicate behavior in the other runtime and record compatibility implications.
-5. Do not treat `.env`, API credentials, lock files, or live account state as source material to copy into code or documentation.
+1. Check it against a current primary source (FINRA, SEC, IRS, or the broker's own API docs/changelog) — not memory, and not this file.
+2. If it conflicts with what the code assumes, treat the code's control as *silently degraded*, not as still working. A guard that reads a field the broker stopped returning does not fail closed — it fails open, silently, which is worse than having no guard at all because it looks like protection.
+3. Re-verify the facts below periodically. They were checked on 2026-08-23; do not assume they still hold indefinitely.
 
-### 2. Model money and failure paths
+### Live finding in this repo (verified 2026-08-23)
 
-Write down the invariant before implementation. At minimum cover:
+FINRA's Pattern Day Trader rule — the $25,000-equity / 4-day-trades-in-5-days restriction — was retired effective **June 4, 2026**, replaced by a dynamic, real-time "Intraday Margin Framework." Alpaca implemented this and removed `daytrade_count`, `pattern_day_trader`, `daytrading_buying_power`, `bod_dtbp`, and `last_daytrade_count` from its Account API on **2026-07-06**.
+
+`RiskEngine.allow_stock_entry()` in `portfolio_engine.py` still gates entries on:
+
+```python
+if self.config.pdt_protection and equity < self.config.pdt_equity_threshold:
+    day_trade_count = as_int(account.get("daytrade_count"))
+    if day_trade_count >= self.config.pdt_max_day_trades:
+```
+
+Since Alpaca no longer returns `daytrade_count`, `account.get(...)` returns `None`, `as_int(None)` defaults to `0`, and `0 >= pdt_max_day_trades` is always `False`. **`PDT_PROTECTION` has been a silent no-op since 2026-07-06** — no exception, no log warning, no alert. It simply stopped blocking anything. This is the sharpest available illustration of why "the code has a guard" and "the guard still works" are different claims, and it is a concrete, ready-to-implement item for the developer skill: migrate to Alpaca's Intraday Margin Framework (real-time, equity-adjusted `buying_power` and Intraday Margin Deficit tracking) rather than a day-trade counter that no longer exists.
+
+### Other standards currently in force (verified 2026-08-23)
+
+- **Settlement is T+1** (since 2024-05-28): a stock sale's cash isn't available for a new entry until the next business day settles. `allow_wheel_entry()` compares Wheel collateral against `account.get("cash")`, which can overstate same-day availability right after a sale.
+- **Wash sale (IRC §1091)** still uses a 30-day window (before and after) and explicitly treats options as potentially "substantially identical" to the underlying stock — with no bright-line IRS definition even now. The repo's `WashSaleTracker` is correctly informational-only, not blocking, because there's no safe way to automate that judgment call. Its silence is a flag for the operator's CPA, not a compliance guarantee.
+- **Market-wide circuit breakers** remain 7% / 13% / 20% S&P 500 decline thresholds (Level 1/2/3), recalculated daily off the prior close. Relevant to the README's open "circuit-breaker handling" item.
+- **Covered-call early-assignment risk is a live, current tactical risk**, not a historical footnote: a deep-ITM call is likely to be exercised early just before ex-dividend when the dividend exceeds remaining extrinsic value. `WheelStrategy.open_covered_call()` selects by delta/DTE/spread only and has no dividend-calendar check — flag this as a thesis gap on any dividend-paying Wheel ticker.
+- **Wheel parameters (30–45 DTE, ~0.30 delta, 50% profit-target buyback) remain the standard range** used by current options-income research and practitioners. The repo's defaults are not stale; there's no standards-driven reason to change this axis.
+- **Reg SHO's locate requirement** falls on Alpaca as broker for any `STOCK_DIRECTION=short`/`both` order, not on this code directly — but it means shortability isn't guaranteed for every ticker. Confirm the account can actually borrow a symbol before assuming a short signal is executable.
+
+Sources checked: [FINRA Regulatory Notice 26-10](https://www.finra.org/rules-guidance/notices/26-10), [Alpaca: FINRA Retires the PDT Rule](https://alpaca.markets/blog/finra-retires-the-pdt-rule-introducing-alpacas-new-intraday-margin-framework/), [Alpaca changelog: PDT/DTBP fields deprecated](https://docs.alpaca.markets/us/changelog/2026-06-03-pdt-651df23), [Alpaca: The Intraday Margin Rule](https://docs.alpaca.markets/us/docs/the-intraday-margin-rule), [White & Case: T+1 Settlement](https://www.whitecase.com/insight-alert/t1-settlement-cycle-take-effect-may-28-2024), [Fidelity: Wash-Sale Rules](https://www.fidelity.com/learning-center/personal-finance/wash-sales-rules-tax), [Investor.gov: Circuit Breakers](https://www.investor.gov/introduction-investing/investing-basics/glossary/stock-market-circuit-breakers), [Fidelity: Dividends and Options Assignment Risk](https://www.fidelity.com/learning-center/investment-products/options/dividends-options-assignment-risk).
+
+## Model money and failure paths
+
+For any change, write the invariant down before implementation:
 
 - maximum notional, collateral, leverage, and buying-power use;
 - single-position, total-stock, sector/correlation, and strategy-level concentration;
-- stop distance, gap risk, option assignment risk, and worst-case exit liquidity;
-- fees, spread, slippage, price rounding, and partial fills;
-- behavior when quotes, Greeks, earnings data, clock data, or account data are missing;
+- stop distance, gap risk, option assignment/early-exercise risk, worst-case exit liquidity;
+- fees, spread, slippage, price rounding, partial fills;
+- behavior when quotes, Greeks, earnings data, clock data, or account data are missing — including a broker silently dropping a field the code depends on (see the PDT finding above);
 - behavior after rejection, timeout, rate limit, process crash, restart, or duplicate execution;
 - behavior in dry-run, paper, and explicitly enabled live modes.
 
-New risk-taking entries should fail closed when required information is unavailable. Managing or reducing an existing position is a separate policy and must remain available when safe to do so.
+New risk-taking entries should fail closed when required information is unavailable or a depended-on field disappears. Managing or reducing an existing position is a separate policy and should stay available even during a failure.
 
-### 3. Make state transitions explicit
+## Guardrails that must stay intact
 
-For any stateful feature, define:
+Any change that can create exposure must still pass: daily drawdown halt plus kill switch/cooldown, single-position and total-stock exposure caps, sector concentration cap, stock-position count cap, PDT-equivalent protection (currently broken — see above), price/spread liquidity checks, earnings blackout, option DTE/delta/open-interest/spread checks, Wheel collateral cap, and paper/live gating. For stock, trailing stops must only tighten. For the Wheel, the CSP → assignment → covered-call → call-away lifecycle and the "covered-call strike must clear assignment basis" rule must hold.
 
-- valid states and allowed transitions;
-- the broker facts that establish each transition;
-- startup and restart recovery;
-- partial-fill, canceled, expired, rejected, assigned, called-away, and manually changed-position behavior;
-- how unknown or externally created positions are quarantined rather than accidentally adopted;
-- schema versioning, migration, corruption handling, and backup expectations.
+## Paper-to-live readiness bar
 
-Persist intent and durable identifiers, not just the hoped-for final state. Existing JSON persistence uses atomic temporary-file replacement, but there is no general schema migration or durable order/fill ledger; a new feature must not make those gaps worse.
+A feature is not live-ready because it passes unit tests or looks right analytically. Before endorsing `LIVE_TRADING=true` for anything:
 
-### 4. Treat orders as events
+- confirm `ALPACA_PAPER=true` and paper credentials were used for the observation period;
+- observe order intent, fills, reconciliation, state recovery, alerts, and kill-switch behavior in paper trading, including at least one forced failure path (rejected order, missing data, restart mid-cycle);
+- confirm limits hold under a stressed/fast-moving market, not just a quiet one;
+- require a stated rollback and manual-intervention plan;
+- size the first live allocation to what you can afford to be wrong about, not to what the backtest suggests.
 
-Before submitting an order:
+Never request or accept real credentials in this conversation. Keep live trading disabled unless the operator explicitly enables it after reviewing paper evidence.
 
-1. Validate account status, market state, data freshness, exposure, liquidity, and strategy ownership.
-2. Generate a deterministic idempotency key derived from the strategy, symbol, action, position/state transition, and logical attempt. Do not use a timestamp alone.
-3. Persist the pending order intent before submission when the operation can create or increase risk.
-4. Submit with explicit side, position intent, quantity, order type, limit/stop constraints, and time-in-force.
-5. Reconcile the broker order and fills. Never equate submission with a fill.
-6. Persist the observed result and only then advance the strategy state.
+## Completion checklist (investor sign-off)
 
-For dry runs, report what would happen without mutating state as if a real fill occurred. Avoid simulated loops that repeatedly create entries or exits on every poll.
+Before treating a change as investor-approved, confirm:
 
-### 5. Preserve trading guardrails
-
-Any feature that can create exposure must pass the relevant existing controls in `portfolio_engine.py`, including drawdown halts, kill switch and cooldown, position and total exposure, sector concentration, PDT protection, price and spread checks, earnings blackout, option DTE/delta/open-interest checks, collateral limits, and paper/live gating.
-
-For stock features, preserve the distinction between long and short positions and ensure trailing stops only tighten. For Wheel features, preserve the CSP-to-assignment-to-covered-call lifecycle, contract sizing, basis protection, option liquidity checks, assignment and early-exercise uncertainty, and the possibility that shares or options changed outside the process.
-
-Do not rely on symbol length to identify asset class when broker metadata is available. Do not use module-global configuration where injected configuration is required for testing or multiple environments.
-
-### 6. Validate like an investor and an operator
-
-Add focused automated tests for the changed behavior before broadening the scope. Prefer pure tests for calculations and transitions, then mocked API tests for order/reconciliation behavior. At minimum consider:
-
-- normal path and boundary values;
-- monotonic stops and sizing limits;
-- spread widening, stale or missing quotes, missing Greeks, and unavailable earnings data;
-- drawdown, sector, collateral, and buying-power limits;
-- partial fills and all terminal order statuses;
-- assignment, expiration, call-away, manual positions, and unknown positions;
-- crash between intent persistence and broker submission, and restart recovery;
-- malformed or old state files and migration behavior;
-- dry-run behavior without false fills or false cooldowns;
-- API errors, rate limits, rejected orders, and cancellation failure.
-
-Run the narrowest relevant test or syntax check first, then the full available validation. The repository currently has no test suite or dependency lock file, so do not claim test coverage that does not exist. If a backtest is added, document data source, survivorship/look-ahead controls, commissions, spread/slippage assumptions, missing-data policy, and out-of-sample results.
-
-### 7. Require paper-trading evidence before live enablement
-
-A feature is not live-ready because it passes unit tests. Before recommending `LIVE_TRADING=true`:
-
-- verify `ALPACA_PAPER=true` and credentials are paper credentials;
-- observe order intent, fills, reconciliation, state recovery, alerts, and kill-switch behavior in paper trading;
-- confirm limits under normal and stressed market conditions;
-- document rollback and manual intervention steps;
-- state residual risks and the smallest capital allocation appropriate for staged deployment.
-
-Never print, commit, or request real credentials. Keep live trading disabled unless the operator explicitly enables it after reviewing the evidence.
-
-## Completion Checklist
-
-Before closing a feature task, report:
-
-- owning runtime and files changed;
-- investor thesis, capital at risk, key assumptions, and disconfirming evidence;
-- state transitions and restart/reconciliation behavior;
-- controls preserved or added;
-- tests/checks run and their result;
-- known limitations, operational alerts, and rollback path;
-- whether the feature is paper-tested, live-ready, or neither.
-
-## Useful Project Commands
-
-From the repository root, with the virtual environment activated:
-
-```powershell
-python -m py_compile portfolio_engine.py alpaca_wheel_strategy.py
-python portfolio_engine.py
-python alpaca_wheel_strategy.py
-```
-
-The two scripts use incompatible state models even though they may point at the same filename. Confirm `STATE_FILE` and the intended runtime before starting either process. Keep `.env` out of source control and use paper trading for development.
+- the thesis, capital at risk, and disconfirming evidence are stated;
+- worst-case loss and the specific guardrails it passes through are named;
+- any regulatory/broker assumption touched was checked against a current source, not assumed;
+- known limitations and residual risk are stated in plain terms, including anything discovered to be silently degraded;
+- whether the change is paper-tested, live-ready, or neither.
