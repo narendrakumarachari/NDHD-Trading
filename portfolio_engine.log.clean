@@ -1,0 +1,2 @@
+2026-08-23 17:42:20,616 | WARNING | DASHBOARD_API_KEY is not set - this API (including order submission and the kill switch) is running WITHOUT authentication. Only safe if bound to 127.0.0.1.
+2026-08-23 17:42:20,616 | INFO | Dashboard API starting. Paper=True LiveTrading=False state_file=wheel_state.json

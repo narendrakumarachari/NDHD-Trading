@@ -241,6 +241,16 @@ class Config:
         "portfolio_engine_state.json"
     )
 
+    # Append-only JSONL log of every alert ever raised (regardless of
+    # whether email delivery is configured). Exists so an out-of-process
+    # reader - e.g. the api/ dashboard service - has something durable to
+    # tail for an alert feed, instead of only ever seeing alerts as log
+    # lines or emails that vanish if nobody was watching at the time.
+    events_file: str = os.getenv(
+        "EVENTS_FILE",
+        "portfolio_engine_events.jsonl"
+    )
+
     order_timeout_seconds: int = env_int(
         "ORDER_TIMEOUT_SECONDS", 60
     )
@@ -303,6 +313,15 @@ class Config:
     alert_email_to: str = os.getenv("ALERT_EMAIL_TO", "")
     alert_email_from: str = os.getenv("ALERT_EMAIL_FROM", "")
 
+    # Every log line (this process and, since api/ imports this module,
+    # the dashboard API process too) is also written here, in addition to
+    # the console. Exists so an out-of-process reader - the dashboard's
+    # live console panel - has a durable stream to tail, the same way
+    # EVENTS_FILE exists for alerts. A trading-engine process started
+    # before this field existed won't have picked it up; restart it to
+    # start writing here.
+    log_file: str = os.getenv("LOG_FILE", "portfolio_engine.log")
+
 
 CONFIG = Config()
 
@@ -311,9 +330,18 @@ CONFIG = Config()
 # LOGGING
 # =============================================================================
 
+_log_handlers: List[logging.Handler] = [logging.StreamHandler()]
+try:
+    _log_handlers.append(
+        logging.FileHandler(CONFIG.log_file, encoding="utf-8")
+    )
+except OSError:
+    pass  # best-effort - console logging still works without it
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=_log_handlers,
 )
 
 LOGGER = logging.getLogger("portfolio-engine")
@@ -348,6 +376,8 @@ class EmailAlerter:
         )
 
     def send(self, subject: str, body: str, key: Optional[str] = None) -> None:
+        self._log_event(subject, body, key)
+
         if not self.enabled:
             LOGGER.warning("ALERT (email disabled): %s | %s", subject, body)
             return
@@ -379,6 +409,27 @@ class EmailAlerter:
 
         except Exception as exc:
             LOGGER.exception("Failed to send alert email: %s", exc)
+
+    def _log_event(self, subject: str, body: str, key: Optional[str]) -> None:
+        """
+        Best-effort append to EVENTS_FILE. Runs unconditionally (even when
+        email alerting is disabled/unconfigured) so every alert this
+        process ever raises is durably recorded somewhere an out-of-process
+        reader can tail - not just logged to stdout or emailed. Never
+        allowed to raise: alerting must not break because its audit trail
+        couldn't be written.
+        """
+        try:
+            record = {
+                "ts": utc_now().isoformat(),
+                "subject": subject,
+                "body": body,
+                "key": key,
+            }
+            with open(self.config.events_file, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+        except Exception:
+            LOGGER.exception("Failed to append alert to events file.")
 
 
 ALERTER = EmailAlerter(CONFIG)
@@ -1906,6 +1957,25 @@ class RiskEngine:
     # -----------------------------------------------------------------
 
     def kill_switch_active(self) -> bool:
+        # Cooperate with a kill switch triggered out-of-process (e.g. the
+        # api/ dashboard service calling trigger_kill_switch() against the
+        # same state file from a manual "flatten now" action). This
+        # process's self.state was loaded once at startup and is not
+        # otherwise re-read from disk each cycle, so without this an
+        # external trigger would be silently ignored until restart.
+        # Best-effort: never let a state-file hiccup block the loop.
+        try:
+            persisted = self.store.load().kill_switch_date
+            if persisted and persisted != self.state.kill_switch_date:
+                LOGGER.warning(
+                    "Kill switch date updated externally to %s.", persisted
+                )
+                self.state.kill_switch_date = persisted
+        except Exception as exc:
+            LOGGER.warning(
+                "Could not re-check persisted kill switch date: %s", exc
+            )
+
         halted_on = self.state.kill_switch_date
         if not halted_on:
             return False
@@ -2362,6 +2432,19 @@ class StockStrategy:
 
         else:
             signal = "NONE"
+
+        # Purely informational, additive stash of the fuller diagnostic
+        # picture (fast EMA / ADX / trend confirmation) for observability
+        # (the api/ dashboard reads this). Deliberately NOT part of the
+        # return contract below - every existing caller unpacks a 4-tuple,
+        # and changing that shape would ripple into process_symbol()/
+        # manage_existing() for no trading-behavior benefit.
+        self.last_diagnostics: Dict[str, Any] = {
+            "ema_fast": fast_now,
+            "ema_slow": slow_now,
+            "adx": None if math.isnan(adx_now) else adx_now,
+            "trending": trending,
+        }
 
         return (
             closes[-1],

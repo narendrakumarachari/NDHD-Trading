@@ -219,6 +219,24 @@ POLL_SECONDS=30
 
 Stop the engine with `Ctrl+C`.
 
+## Dashboard & Control API (optional)
+
+A separate, read-mostly FastAPI service exposes account/positions/orders,
+per-symbol strategy state and indicators, the risk panel, and an alert
+feed, plus manual controls (close a position, cancel an order, trigger the
+kill switch, submit a manual order gated by the same risk checks) - and
+serves a live-updating React dashboard UI. It runs independently of this
+engine's poll loop and shares the same `.env` and state file.
+
+```powershell
+pip install -r requirements-api.txt
+uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000/` for the dashboard, `/docs` for Swagger. See
+[web/README.md](web/README.md) for configuration (in particular,
+`DASHBOARD_API_KEY` for authentication) and what it can and can't do.
+
 ## Stock Strategy
 
 ### Entry

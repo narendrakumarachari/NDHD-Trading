@@ -48,5 +48,15 @@ venv.bak/
 wheel_state.json
 portfolio_engine_state.json
 
+# Runtime lock file (api/deps.py's ProcessLock)
+*.lock
+
+# Alert/event log the dashboard API tails (see EmailAlerter._log_event)
+*.jsonl
+
 # Logs
 *.log
+
+# Frontend tooling, if this ever grows an npm-based build step
+web/node_modules/
+web/dist/
