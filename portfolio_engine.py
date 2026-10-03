@@ -304,6 +304,15 @@ class Config:
     # Wash-sale awareness (informational only) (Issue #9)
     wash_sale_window_days: int = env_int("WASH_SALE_WINDOW_DAYS", 30)
 
+    # Congressional trade disclosures (congress_trades/), advisory only:
+    # a log line and an alert, never an input to orders, sizing, stops or
+    # RiskEngine. Off by default. See the investor skill's decision table.
+    congress_context_enabled: bool = env_bool("CONGRESS_CONTEXT_ENABLED", False)
+    congress_data_file: str = os.getenv(
+        "CONGRESS_DATA_FILE",
+        "data/congress_trades.json"
+    )
+
     # Email alerting
     alerts_enabled: bool = env_bool("ALERTS_ENABLED", False)
     smtp_host: str = os.getenv("SMTP_HOST", "")
@@ -4244,6 +4253,18 @@ class PortfolioEngine:
             config.wash_sale_window_days
         )
 
+        # Advisory only: nothing the reader returns may feed an order,
+        # size, stop or RiskEngine check. A reader that fails to load
+        # leaves the engine exactly as it is with the flag off.
+        self.congress = None
+        self._congress_alerted: set = set()
+        if config.congress_context_enabled:
+            try:
+                from congress_trades.context import ContextReader
+                self.congress = ContextReader(config.congress_data_file, LOGGER)
+            except Exception as exc:
+                LOGGER.warning("Congress context disabled: reader failed to load: %s", exc)
+
         self.stock = StockStrategy(
             config,
             self.api,
@@ -4472,11 +4493,50 @@ class PortfolioEngine:
                     f"Account blocked by {field_name}."
                 )
 
+    def congress_advisory(self) -> None:
+        """
+        Logs and alerts when a symbol the engine holds or may enter had a
+        recent cluster of lawmakers trading it (or a committee-overlap
+        trade) in verified congressional filings. Read-only: it touches no
+        order, size, stop, state or RiskEngine decision. Uses config and
+        local state only, no broker calls, so it also runs while the
+        market is closed. Each symbol alerts at most once a day per data
+        build; EmailAlerter.send() logs an event on every call, even
+        inside its own cooldown, so the dedupe has to live here.
+        """
+        if self.congress is None:
+            return
+        try:
+            today = date.today()
+            symbols = set(self.config.stock_tickers) | set(self.config.wheel_tickers)
+            symbols |= {s for s, st in self.state.stocks.items() if st.status != "IDLE"}
+            symbols |= set(self.state.wheels)
+            self._congress_alerted = {k for k in self._congress_alerted if k[1] == today}
+            for symbol in sorted(symbols):
+                ctx = self.congress.context_for(symbol, today)
+                if not ctx:
+                    continue
+                seen = (symbol, today, ctx["data_as_of"])
+                if seen in self._congress_alerted:
+                    continue
+                self._congress_alerted.add(seen)
+                LOGGER.info("Congress context (advisory, no trading effect): %s", ctx["headline"])
+                self.alerter.send(
+                    subject=f"Congress trade context: {symbol}",
+                    body=ctx["detail"],
+                    key=f"congress:{symbol}",
+                )
+        except Exception as exc:
+            LOGGER.warning("Congress context check failed (advisory only, trading unaffected): %s", exc)
+
     def run_once(
         self,
     ) -> None:
 
         self.validate_config()
+
+        # Advisory only; before the clock check so it runs when closed too.
+        self.congress_advisory()
 
         clock = self.api.get_clock()
 
