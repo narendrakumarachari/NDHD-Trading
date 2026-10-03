@@ -112,14 +112,27 @@ The current implementation is a single Python execution engine containing:
 
 ## Requirements
 
-- Python 3.10+ recommended
+- Python 3.14 (Python 3.10 reached end of life on 2026-10-01)
 - Alpaca trading account
 - Alpaca API credentials
 - Alpaca paper-trading account for initial testing
 - Internet connectivity
-- `requests`
-- `yfinance`
-- `python-dotenv` recommended for local `.env` configuration
+- The pinned packages below
+
+| File | What it holds |
+| --- | --- |
+| `requirements.txt` | Direct dependencies of the engines and `congress_trades`, pinned with `==` |
+| `requirements-api.txt` | Adds the dashboard API's dependencies on top of `requirements.txt` |
+| `requirements.lock.txt` | Every package, direct and transitive, pinned with hashes for Windows and Python 3.14. Install from this. |
+
+The lock is generated, never hand-edited. After changing a pin, regenerate it and scan it (see the developer skill in `.github/skills/ndhd-trading-developer/SKILL.md`):
+
+```powershell
+uv pip compile requirements-api.txt --python-version 3.14 --python-platform x86_64-pc-windows-msvc --generate-hashes -o requirements.lock.txt
+pip-audit -r requirements.lock.txt --require-hashes --strict
+```
+
+CI (`.github/workflows/ci.yml`) installs from the lock on Windows with Python 3.14, compiles both engines, runs the `congress_trades` tests and fails on any known vulnerability in the lock. Dependabot opens weekly update PRs.
 
 ## Installation
 
@@ -143,10 +156,10 @@ Activate it.
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Install dependencies (exact versions, hash-checked):
 
 ```bash
-pip install requests yfinance python-dotenv
+pip install --require-hashes -r requirements.lock.txt
 ```
 
 ## Configuration
@@ -229,13 +242,31 @@ serves a live-updating React dashboard UI. It runs independently of this
 engine's poll loop and shares the same `.env` and state file.
 
 ```powershell
-pip install -r requirements-api.txt
+pip install --require-hashes -r requirements.lock.txt   # the lock already includes the API packages
 uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
 Open `http://127.0.0.1:8000/` for the dashboard, `/docs` for Swagger. See
 [web/README.md](web/README.md) for configuration (in particular,
 `DASHBOARD_API_KEY` for authentication) and what it can and can't do.
+
+## Congressional Trade Disclosures (research only)
+
+`congress_trades/` collects STOCK Act trade disclosures by members of Congress
+from both parties into `data\congress_trades.json` and a dashboard page,
+`data\congress-trade-ledger.html`. House rows are read from the official House
+Clerk filings and marked verified. Senate rows still come from an aggregator
+and are marked unverified. It is personal, non-commercial research, and
+`data/` is never committed.
+
+```powershell
+python -m congress_trades.build_dashboard congress_trades\sample\raw_congressflow.csv --house
+```
+
+The engine can optionally log and alert when a symbol it trades shows a recent
+cluster of lawmakers trading it (`CONGRESS_CONTEXT_ENABLED=true`, off by
+default). This is advisory only. It never changes an order, a size, a stop or
+a risk check. See [congress_trades/README.md](congress_trades/README.md).
 
 ## Stock Strategy
 

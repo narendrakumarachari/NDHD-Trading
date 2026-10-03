@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install the hashed lock
+        run: python -m pip install --require-hashes -r requirements.lock.txt
+
+      - name: Compile both engines
+        run: python -m py_compile portfolio_engine.py alpaca_wheel_strategy.py
+
+      - name: congress_trades tests
+        run: python -m unittest discover -s congress_trades -t . -v
+
+      # pip-audit runs from its own venv so it never mixes into the hashed
+      # environment above. --strict fails the build on any known vulnerability
+      # and on any package it could not audit.
+      - name: Vulnerability scan of the lock
+        run: |
+          python -m venv "$env:RUNNER_TEMP\audit"
+          & "$env:RUNNER_TEMP\audit\Scripts\python.exe" -m pip install --disable-pip-version-check pip-audit==2.10.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP\audit\Scripts\pip-audit.exe" -r requirements.lock.txt --require-hashes --strict

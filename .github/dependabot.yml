@@ -1,0 +1,15 @@
+# Weekly update PRs. A pip PR only bumps the == pin it touches; regenerate the
+# hashed lock with the uv command in the developer skill before merging, or CI
+# (which installs from requirements.lock.txt) will not test the new version.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
