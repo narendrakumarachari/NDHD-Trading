@@ -1,0 +1,340 @@
+filed,traded,politician,party,chamber,ticker,type,amount,company
+2026-10-02,2026-09-22,David Taylor,R,House,MPC,Sell,$1001-$15000,Marathon Petroleum Corp (1)
+2026-10-02,2026-09-22,David Taylor,R,House,AMGN,Buy,$1001-$15000,Amgen Inc
+2026-10-02,2026-09-22,David Taylor,R,House,HD,Buy,$1001-$15000,The Home Depot Inc
+2026-10-02,2026-09-22,David Taylor,R,House,MPC,Sell,$1001-$15000,Marathon Petroleum Corp (2)
+2026-10-02,2026-09-22,David Taylor,R,House,MPC,Sell,$1001-$15000,Marathon Petroleum Corp
+2026-10-02,2026-09-14,Cleo Fields,D,House,GOOGL,Buy,$1001-$15000,Alphabet Inc
+2026-10-02,2026-09-14,Cleo Fields,D,House,NFLX,Buy,$1001-$15000,Netflix Inc
+2026-10-02,2026-09-10,Cleo Fields,D,House,MSFT,Buy,$1001-$15000,Microsoft Corp
+2026-10-02,2026-09-08,Cleo Fields,D,House,AAPL,Buy,$1001-$15000,Apple Inc
+2026-10-01,2026-09-04,Sheldon Whitehouse,D,Senate,ADI,Sell,$1001-$15000,Analog Devices Inc
+2026-10-01,2026-09-04,Sheldon Whitehouse,D,Senate,V,Sell,$1001-$15000,Visa Inc
+2026-10-01,2026-09-04,Sheldon Whitehouse,D,Senate,JPM,Sell,$15001-$50000,JPMorgan Chase & Co
+2026-09-30,2026-09-04,Sheldon Whitehouse,D,Senate,V,Sell (Partial),$1001-$15000,Visa Inc.
+2026-09-30,2026-09-04,Sheldon Whitehouse,D,Senate,,Sell (Partial),$15001-$50000,JP Morgan Chase & Co. Common Stock
+2026-09-30,2026-09-04,Sheldon Whitehouse,D,Senate,,Sell (Partial),$1001-$15000,Analog Devices Inc. - Common Stock
+2026-09-28,2026-09-15,Kevin Hern,R,House,STE,Sell,$15001-$50000,Steris PLC
+2026-09-28,2026-09-15,Kevin Hern,R,House,STX,Sell,$1001-$15000,Seagate Technology Holdings PLC
+2026-09-28,2026-09-15,Kevin Hern,R,House,CNP,Sell,$15001-$50000,CenterPoint Energy Inc
+2026-09-28,2026-09-15,Kevin Hern,R,House,TJX,Sell,$1001-$15000,The TJX Companies Inc
+2026-09-28,2026-09-14,Kevin Hern,R,House,EMR,Sell,$15001-$50000,Emerson Electric Co
+2026-09-28,2026-09-14,Kevin Hern,R,House,ROK,Sell,$15001-$50000,Rockwell Automation Inc
+2026-09-28,2026-09-14,Kevin Hern,R,House,EMR,Sell,$1001-$15000,Emerson Electric Co
+2026-09-28,2026-09-14,Kevin Hern,R,House,IQV,Sell,$15001-$50000,Iqvia Holdings Inc
+2026-09-28,2026-09-14,Kevin Hern,R,House,AIO,Sell,$15001-$50000,Virtus AllianzGI AI Fund
+2026-09-28,2026-09-14,Kevin Hern,R,House,DVN,Sell,$15001-$50000,Devon Energy Corp
+2026-09-28,2026-09-14,Kevin Hern,R,House,CDNS,Sell,$15001-$50000,Cadence Design Systems Inc
+2026-09-28,2026-09-14,Kevin Hern,R,House,HD,Sell,$1001-$15000,The Home Depot Inc
+2026-09-28,2026-09-14,Kevin Hern,R,House,HD,Sell,$15001-$50000,The Home Depot Inc
+2026-09-28,2026-09-14,Kevin Hern,R,House,MRSH,Sell,$1001-$15000,MR
+2026-09-28,2026-09-14,Kevin Hern,R,House,NEE,Sell,$15001-$50000,NextEra Energy Inc
+2026-09-28,2026-09-11,Kevin Hern,R,House,OKE,Exchange,$500001-$1000000,ONEOK Inc
+2026-09-28,2026-09-11,Kevin Hern,R,House,OKE,Exchange,$100001-$250000,ONEOK Inc
+2026-09-28,2026-09-10,Kevin Hern,R,House,HD,Sell,$15001-$50000,The Home Depot Inc
+2026-09-28,2026-09-10,Kevin Hern,R,House,UNH,Sell,$15001-$50000,Unitedhealth Group Inc
+2026-09-28,2026-09-10,Kevin Hern,R,House,NVO,Sell,$1001-$15000,Novo Nordisk A/S
+2026-09-28,2026-09-10,Kevin Hern,R,House,ETN,Sell,$1001-$15000,Eaton Corp PLC
+2026-09-28,2026-09-09,Kevin Hern,R,House,BSX,Sell,$50001-$100000,Boston Scientific Corp
+2026-09-28,2026-09-09,Kevin Hern,R,House,MRSH,Sell,$100001-$250000,MR
+2026-09-28,2026-09-09,Kevin Hern,R,House,PTC,Sell,$50001-$100000,PTC Inc
+2026-09-28,2026-09-09,Kevin Hern,R,House,ITW,Sell,$15001-$50000,Illinois Tool Works Inc
+2026-09-28,2026-09-08,Kevin Hern,R,House,ETV,Sell,$1001-$15000,ET
+2026-09-28,2026-09-08,Kevin Hern,R,House,AAPL,Sell,$1001-$15000,Apple Inc (2)
+2026-09-28,2026-09-08,Kevin Hern,R,House,AAPL,Sell,$1001-$15000,Apple Inc (1)
+2026-09-28,2026-09-08,Kevin Hern,R,House,AAPL,Sell,$1001-$15000,Apple Inc
+2026-09-28,2026-09-08,Kevin Hern,R,House,IQV,Sell,$1001-$15000,Iqvia Holdings Inc
+2026-09-28,2026-09-04,Kevin Hern,R,House,OKE,Sell,$15001-$50000,ONEOK Inc
+2026-09-28,2026-09-04,Kevin Hern,R,House,ITW,Sell,$50001-$100000,Illinois Tool Works Inc
+2026-09-28,2026-09-04,Kevin Hern,R,House,DVN,Sell,$100001-$250000,Devon Energy Corp
+2026-09-28,2026-09-04,Kevin Hern,R,House,BSX,Sell,$50001-$100000,Boston Scientific Corp
+2026-09-28,2026-09-03,Kevin Hern,R,House,VUZI,Sell,$1001-$15000,Vuzix Corp
+2026-09-28,2026-09-03,Kevin Hern,R,House,BSX,Sell,$1001-$15000,Boston Scientific Corp (1)
+2026-09-28,2026-09-03,Kevin Hern,R,House,IQV,Sell,$1001-$15000,Iqvia Holdings Inc
+2026-09-28,2026-09-03,Kevin Hern,R,House,BSX,Sell,$1001-$15000,Boston Scientific Corp
+2026-09-28,2026-09-03,Kevin Hern,R,House,BSX,Sell,$1001-$15000,Boston Scientific Corp (3)
+2026-09-28,2026-09-03,Kevin Hern,R,House,BSX,Sell,$1001-$15000,Boston Scientific Corp (2)
+2026-09-28,2026-09-02,Kevin Hern,R,House,ORLY,Sell,$15001-$50000,O'Reilly Automotive Inc
+2026-09-28,2026-09-02,Kevin Hern,R,House,LOW,Sell,$1001-$15000,Lowe's Cos Inc
+2026-09-28,2026-09-02,Kevin Hern,R,House,LIN,Sell,$15001-$50000,Linde PLC
+2026-09-28,2026-09-02,Kevin Hern,R,House,ROK,Sell,$15001-$50000,Rockwell Automation Inc (1)
+2026-09-28,2026-09-02,Kevin Hern,R,House,LMT,Sell,$15001-$50000,Lockheed Martin Corp (1)
+2026-09-28,2026-09-02,Kevin Hern,R,House,SBUX,Sell,$1001-$15000,Starbucks Corp
+2026-09-28,2026-09-02,Kevin Hern,R,House,CDNS,Sell,$15001-$50000,Cadence Design Systems Inc
+2026-09-28,2026-09-02,Kevin Hern,R,House,LMT,Sell,$15001-$50000,Lockheed Martin Corp
+2026-09-28,2026-09-02,Kevin Hern,R,House,NEE,Sell,$1001-$15000,NextEra Energy Inc
+2026-09-28,2026-09-02,Kevin Hern,R,House,DHR,Sell,$1001-$15000,Danaher Corp
+2026-09-28,2026-09-02,Kevin Hern,R,House,LMT,Sell,$15001-$50000,Lockheed Martin Corp (2)
+2026-09-28,2026-09-02,Kevin Hern,R,House,CL,Sell,$1001-$15000,Colgate-Palmolive Co
+2026-09-28,2026-09-02,Kevin Hern,R,House,ROK,Sell,$15001-$50000,Rockwell Automation Inc
+2026-09-28,2026-09-02,Kevin Hern,R,House,HD,Sell,$15001-$50000,The Home Depot Inc
+2026-09-28,2026-09-02,Kevin Hern,R,House,ROK,Sell,$15001-$50000,Rockwell Automation Inc (2)
+2026-09-28,2026-09-02,Kevin Hern,R,House,TJX,Sell,$15001-$50000,The TJX Companies Inc
+2026-09-28,2026-09-02,Kevin Hern,R,House,ITW,Sell,$15001-$50000,Illinois Tool Works Inc
+2026-09-28,2026-09-02,Kevin Hern,R,House,DVN,Sell,$100001-$250000,Devon Energy Corp
+2026-09-28,2026-08-31,Kevin Hern,R,House,NVO,Sell,$1001-$15000,Novo Nordisk A/S
+2026-09-28,2026-08-31,Kevin Hern,R,House,DHR,Sell,$15001-$50000,Danaher Corp
+2026-09-28,2026-08-31,Kevin Hern,R,House,KO,Buy,$1001-$15000,The Coca-Cola Co
+2026-09-28,2026-08-31,Kevin Hern,R,House,TJX,Sell,$15001-$50000,The TJX Companies Inc
+2026-09-28,2026-08-31,Kevin Hern,R,House,ITW,Sell,$15001-$50000,Illinois Tool Works Inc
+2026-09-28,2026-08-31,Kevin Hern,R,House,HD,Sell,$15001-$50000,The Home Depot Inc
+2026-09-28,2026-08-31,Kevin Hern,R,House,CB,Buy,$1001-$15000,Chubb Ltd
+2026-09-28,2026-08-31,Kevin Hern,R,House,LIN,Sell,$15001-$50000,Linde PLC
+2026-09-28,2026-08-31,Kevin Hern,R,House,CSX,Sell,$1001-$15000,CSX Corp
+2026-09-28,2026-08-31,Kevin Hern,R,House,DVN,Sell,$15001-$50000,Devon Energy Corp
+2026-09-28,2026-08-31,Kevin Hern,R,House,AIO,Sell,$15001-$50000,Virtus AllianzGI AI Fund
+2026-09-28,2026-08-31,Kevin Hern,R,House,DVN,Sell,$100001-$250000,Devon Energy Corp
+2026-09-28,2026-08-31,Kevin Hern,R,House,PTC,Sell,$50001-$100000,PTC Inc
+2026-09-28,2026-08-31,Kevin Hern,R,House,CR,Sell,$50001-$100000,Crane Co
+2026-09-28,2026-08-31,Kevin Hern,R,House,CR,Sell,$15001-$50000,Crane Co
+2026-09-28,2026-08-31,Kevin Hern,R,House,RA,Sell,$15001-$50000,RA
+2026-09-28,2026-08-31,Kevin Hern,R,House,BSX,Sell,$15001-$50000,Boston Scientific Corp
+2026-09-28,2026-08-31,Kevin Hern,R,House,HON,Sell,$15001-$50000,Honeywell International Inc
+2026-09-28,2026-08-31,Kevin Hern,R,House,XOM,Sell,$100001-$250000,Exxon Mobil Corp
+2026-09-28,2026-08-31,Kevin Hern,R,House,F,Sell,$1001-$15000,Ford Motor Co
+2026-09-28,2026-08-31,Kevin Hern,R,House,OKE,Sell,$50001-$100000,ONEOK Inc
+2026-09-28,2026-08-31,Kevin Hern,R,House,ORLY,Sell,$15001-$50000,O'Reilly Automotive Inc
+2026-09-28,2026-08-31,Kevin Hern,R,House,PRGS,Sell,$15001-$50000,Progress Software Corp
+2026-09-28,2026-08-31,Kevin Hern,R,House,CL,Sell,$1001-$15000,Colgate-Palmolive Co
+2026-09-28,2026-08-27,Kevin Hern,R,House,WMT,Sell,$1001-$15000,Walmart Inc
+2026-09-28,2026-08-27,Kevin Hern,R,House,HD,Sell,$1001-$15000,The Home Depot Inc
+2026-09-28,2026-08-27,Kevin Hern,R,House,PBA,Sell,$15001-$50000,Pembina Pipeline Corp
+2026-09-28,2026-08-27,Kevin Hern,R,House,CL,Sell,$1001-$15000,Colgate-Palmolive Co
+2026-09-28,2026-08-27,Kevin Hern,R,House,TJX,Sell,$1001-$15000,The TJX Companies Inc
+2026-09-28,2026-08-27,Kevin Hern,R,House,CSX,Sell,$1001-$15000,CSX Corp
+2026-09-28,2026-08-27,Kevin Hern,R,House,NVS,Sell,$15001-$50000,Novartis AG
+2026-09-28,2026-08-05,Harold Dallas Rogers,R,House,EA,Sell,$1001-$15000,Electronic Arts Inc
+2026-09-27,2026-09-11,Richard Blumenthal,D,Senate,,Buy,$250001-$500000,Not Fade Away LLC
+2026-09-27,2026-09-11,Richard Blumenthal,D,Senate,,Buy,$1001-$15000,Not Fade Away LLC
+2026-09-27,2026-08-27,Richard Blumenthal,D,Senate,,Buy,$100001-$250000,Days Between LLC
+2026-09-27,2026-08-24,Richard Blumenthal,D,Senate,,Buy,$50001-$100000,MH Built to Last LLC
+2026-09-27,2026-08-19,Richard Blumenthal,D,Senate,,Sell (Partial),$250001-$500000,MH Built to Last LLC
+2026-09-27,2026-08-14,James Conley Justice II,R,Senate,,Sell (Partial),Over $50000000,Greenbrier Hotel Corporation
+2026-09-25,2026-09-15,Kevin Hern,R,House,,Buy,$15001-$50000,MUSKOGEE CNTY OKLA Municipal Bond
+2026-09-25,2026-09-15,Kevin Hern,R,House,CNP,Sell (Full),$15001-$50000,CenterPoint Energy Inc
+2026-09-25,2026-09-15,Kevin Hern,R,House,TJX,Sell (Full),$1001-$15000,TJX Companies Inc
+2026-09-25,2026-09-15,Kevin Hern,R,House,STX,Sell (Partial),$1001-$15000,Seagate Technology Holdings PLC
+2026-09-25,2026-09-15,Kevin Hern,R,House,,Buy,$15001-$50000,OKLAHOMA ST CAPITOL Municipal Bond
+2026-09-25,2026-09-15,Kevin Hern,R,House,STE,Sell (Full),$15001-$50000,STERIS PLC
+2026-09-25,2026-09-15,Kevin Hern,R,House,,Buy,$15001-$50000,GRAND RIVER DAM Municipal Bond
+2026-09-25,2026-09-14,Kevin Hern,R,House,,Buy,$15001-$50000,JACKSON CNTY OKLA Municipal Bond
+2026-09-25,2026-09-09,Kevin Hern,R,House,,Buy,$15001-$50000,TULSA OKLA MET Municipal Bond
+2026-09-25,2026-09-08,Kevin Hern,R,House,,Buy,$15001-$50000,ARBUCKLE MEM Municipal Bond
+2026-09-25,2026-09-04,Kevin Hern,R,House,,Buy,$50001-$100000,OKLAHOMA CITY Municipal Bond
+2026-09-22,2026-09-22,Pete Sessions,R,House,AAPL,Sell,$100001-$250000,Apple Inc
+2026-09-10,2026-08-19,April Delaney,D,House,HUBB,Buy,$15001-$50000,Hubbell Inc
+2026-09-10,2026-08-19,April Delaney,D,House,TDY,Sell,$1001-$15000,Teledyne Technologies Inc
+2026-09-10,2026-08-18,April Delaney,D,House,HUBB,Buy,$1001-$15000,Hubbell Inc
+2026-09-10,2026-08-17,April Delaney,D,House,LYV,Sell,$1001-$15000,Live Nation Entertainment Inc
+2026-09-10,2026-08-14,April Delaney,D,House,CHRW,Buy,$1001-$15000,C.H. Robinson Worldwide Inc
+2026-09-10,2026-08-14,April Delaney,D,House,LYV,Sell,$1001-$15000,Live Nation Entertainment Inc
+2026-09-10,2026-08-14,April Delaney,D,House,HUBB,Buy,$1001-$15000,Hubbell Inc
+2026-09-10,2026-08-13,Brandon Gill,R,House,RYT,Buy,$50001-$100000,RY
+2026-09-10,2026-08-13,John Boozman,R,Senate,FSLR,Buy,$1001-$15000,First Solar Inc
+2026-09-10,2026-08-13,John Boozman,R,Senate,CEG,Sell (Partial),$1001-$15000,Constellation Energy Corporation
+2026-09-10,2026-08-12,Maria Elvira Salazar,R,House,QCOM,Sell,$1001-$15000,QUALCOMM Inc
+2026-09-10,2026-08-12,April Delaney,D,House,TSCO,Sell,$1001-$15000,Tractor Supply Co
+2026-09-10,2026-08-12,Maria Elvira Salazar,R,House,SPCX,Buy,$1001-$15000,SP
+2026-09-10,2026-08-12,April Delaney,D,House,CHRW,Buy,$1001-$15000,C.H. Robinson Worldwide Inc
+2026-09-10,2026-08-10,April Delaney,D,House,MIDD,Sell,$1001-$15000,The Middleby Corp
+2026-09-10,2026-08-07,April Delaney,D,House,LH,Sell,$1001-$15000,Laboratory Corp of America Holdings
+2026-09-10,2026-08-07,Maria Elvira Salazar,R,House,BRK-B,Buy,$1001-$15000,Berkshire Hathaway Inc
+2026-09-10,2026-08-07,April Delaney,D,House,FLT,Sell,$15001-$50000,FleetCor Technologies Inc
+2026-09-10,2026-08-07,April Delaney,D,House,LTH,Buy,$1001-$15000,LT
+2026-09-10,2026-08-07,April Delaney,D,House,FWONK,Buy,$15001-$50000,Formula One Group - The Liberty Media Group
+2026-09-10,2026-08-06,April Delaney,D,House,VIK,Sell,$1001-$15000,VIKING HOLDINGS LTD
+2026-09-10,2026-08-06,April Delaney,D,House,LTH,Buy,$1001-$15000,LT
+2026-09-10,2026-08-06,April Delaney,D,House,LH,Sell,$1001-$15000,Laboratory Corp of America Holdings
+2026-09-10,2026-08-06,April Delaney,D,House,MIDD,Sell,$1001-$15000,The Middleby Corp
+2026-09-10,2026-08-06,April Delaney,D,House,FLT,Sell,$15001-$50000,FleetCor Technologies Inc
+2026-09-10,2026-08-05,April Delaney,D,House,MIDD,Sell,$1001-$15000,The Middleby Corp
+2026-09-10,2026-08-05,April Delaney,D,House,VIK,Sell,$1001-$15000,VIKING HOLDINGS LTD
+2026-09-10,2026-08-05,April Delaney,D,House,CHRW,Buy,$1001-$15000,C.H. Robinson Worldwide Inc
+2026-09-10,2026-08-05,April Delaney,D,House,LH,Sell,$1001-$15000,Laboratory Corp of America Holdings
+2026-09-10,2026-08-04,April Delaney,D,House,SCI,Sell,$1001-$15000,Service Corp International
+2026-09-10,2026-08-04,April Delaney,D,House,VIK,Sell,$1001-$15000,VIKING HOLDINGS LTD
+2026-09-10,2026-08-04,April Delaney,D,House,MIDD,Sell,$1001-$15000,The Middleby Corp
+2026-09-10,2026-08-03,April Delaney,D,House,BWXT,Buy,$1001-$15000,BWX Technologies Inc
+2026-09-10,2026-08-03,April Delaney,D,House,CHRW,Buy,$15001-$50000,C.H. Robinson Worldwide Inc
+2026-09-10,2026-08-03,April Delaney,D,House,SCI,Sell,$1001-$15000,Service Corp International
+2026-09-10,2026-08-03,April Delaney,D,House,HUBB,Buy,$1001-$15000,Hubbell Inc
+2026-09-10,2026-08-03,April Delaney,D,House,FLT,Sell,$1001-$15000,FleetCor Technologies Inc
+2026-09-10,2026-08-03,April Delaney,D,House,LTH,Buy,$15001-$50000,LT
+2026-09-10,2026-08-03,April Delaney,D,House,FWONK,Buy,$15001-$50000,Formula One Group - The Liberty Media Group
+2026-09-10,2026-08-03,April Delaney,D,House,WAB,Sell,$15001-$50000,Westinghouse Air Brake Technologies Corp
+2026-09-10,2026-08-03,April Delaney,D,House,VIK,Sell,$1001-$15000,VIKING HOLDINGS LTD
+2026-09-09,2026-08-18,John Fetterman,D,Senate,TRP,Buy,$1001-$15000,TransCanada PipeLines Ltd
+2026-09-09,2026-08-17,Lloyd Doggett,D,House,PG,Buy,$1001-$15000,Procter & Gamble Company
+2026-09-09,2026-08-17,Lloyd Doggett,D,House,PG,Buy,$1001-$15000,The Procter & Gamble Co
+2026-09-09,2026-08-16,Lloyd Doggett,D,House,PG,Buy,$1001-$15000,Procter & Gamble Company
+2026-09-09,2026-08-11,Cory Booker,D,Senate,MCD,Sell,$15001-$50000,McDonald's Corp
+2026-09-09,2026-08-11,Cory Booker,D,Senate,AMZN,Sell,$100001-$250000,Amazon.com Inc
+2026-09-09,2026-08-11,Cory Booker,D,Senate,JD,Sell,$1001-$15000,JD.com Inc
+2026-09-09,2026-08-11,Cory Booker,D,Senate,ALNY,Sell,$1001-$15000,Alnylam Pharmaceuticals Inc
+2026-09-09,2026-08-11,Cory Booker,D,Senate,NVDA,Sell,$15001-$50000,NVIDIA Corporation
+2026-09-09,2026-08-11,Cory Booker,D,Senate,NFLX,Sell,$1001-$15000,Netflix Inc
+2026-09-07,2026-08-27,Ro Khanna,D,House,WFC,Buy,$50001-$100000,Wells Fargo & Co
+2026-09-07,2026-08-27,Ro Khanna,D,House,BNS,Buy,$50001-$100000,The Bank of Nova Scotia
+2026-09-07,2026-08-26,David Taylor,R,House,AVGO,Buy,$1001-$15000,Broadcom Inc
+2026-09-07,2026-08-26,David Taylor,R,House,MSFT,Sell,$1001-$15000,Microsoft Corp
+2026-09-07,2026-08-26,David Taylor,R,House,AVGO,Buy,$1001-$15000,Broadcom Inc (2)
+2026-09-07,2026-08-26,David Taylor,R,House,AMGN,Sell,$1001-$15000,Amgen Inc
+2026-09-07,2026-08-26,David Taylor,R,House,VRTX,Sell,$1001-$15000,Vertex Pharmaceuticals Inc
+2026-09-07,2026-08-26,David Taylor,R,House,FITB,Buy,$1001-$15000,Fifth Third Bancorp
+2026-09-07,2026-08-26,David Taylor,R,House,AVGO,Buy,$1001-$15000,Broadcom Inc (1)
+2026-09-07,2026-08-26,David Taylor,R,House,AEP,Buy,$1001-$15000,American Electric Power Co Inc
+2026-09-07,2026-08-25,David Taylor,R,House,MSFT,Sell (Full),$1001-$15000,Microsoft Corporation - Common Stock
+2026-09-07,2026-08-25,David Taylor,R,House,VRTX,Sell (Full),$1001-$15000,Vertex Pharmaceuticals Incorporated - Common Stock
+2026-09-07,2026-08-25,David Taylor,R,House,AMGN,Sell (Full),$1001-$15000,Amgen Inc. - Common Stock
+2026-09-07,2026-08-25,David Taylor,R,House,FITB,Buy,$1001-$15000,Fifth Third Bancorp - Common Stock
+2026-09-07,2026-08-25,David Taylor,R,House,AVGO,Buy,$1001-$15000,Broadcom Inc. - Common Stock
+2026-09-07,2026-08-25,David Taylor,R,House,AEP,Buy,$1001-$15000,American Electric Power Company Inc
+2026-09-07,2026-08-24,Ro Khanna,D,House,QCOM,Buy,$15001-$50000,QUALCOMM Inc
+2026-09-07,2026-08-19,Ro Khanna,D,House,FDS,Sell,$1001-$15000,FactSet Research Systems Inc
+2026-09-07,2026-08-18,Ro Khanna,D,House,WFC,Buy,$1001-$15000,Wells Fargo & Co
+2026-09-07,2026-08-14,Tony Wied,R,House,UPST,Sell,$15001-$50000,Upstart Holdings
+2026-09-07,2026-08-14,Tony Wied,R,House,SCHO,Sell,$50001-$100000,SC
+2026-09-07,2026-08-14,Tony Wied,R,House,NOW,Buy,$15001-$50000,ServiceNow Inc
+2026-09-07,2026-08-14,Tony Wied,R,House,TTD,Sell,$15001-$50000,The Trade Desk Inc
+2026-09-07,2026-08-14,Tony Wied,R,House,CRM,Buy,$15001-$50000,salesforce.com Inc
+2026-09-07,2026-08-14,Tony Wied,R,House,HUBS,Buy,$15001-$50000,HubSpot Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,F,Buy,$1001-$15000,Ford Motor Co
+2026-09-07,2026-08-10,Ro Khanna,D,House,MO,Sell,$1001-$15000,Altria Group Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,LVS,Buy,$1001-$15000,Las Vegas Sands Corp
+2026-09-07,2026-08-10,Ro Khanna,D,House,MCHP,Buy,$1001-$15000,Microchip Technology Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,MCHP,Buy,$50001-$100000,Microchip Technology Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,CTSH,Buy,$1001-$15000,Cognizant Technology Solutions Corp
+2026-09-07,2026-08-10,Ro Khanna,D,House,MDB,Buy,$1001-$15000,MongoDB Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,ADBE,Buy,$1001-$15000,Adobe Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,ISRG,Sell,$1001-$15000,Intuitive Surgical Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,MCD,Sell,$15001-$50000,McDonald's Corp
+2026-09-07,2026-08-10,Ro Khanna,D,House,CDNS,Sell,$1001-$15000,Cadence Design Systems Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,CNC,Sell,$15001-$50000,Centene Corp
+2026-09-07,2026-08-10,Ro Khanna,D,House,BLDR,Sell,$1001-$15000,Builders FirstSource Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,CARR,Sell,$1001-$15000,Carrier Global Corp
+2026-09-07,2026-08-10,Ro Khanna,D,House,FISV,Buy,$1001-$15000,Fiserv Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,FERG,Buy,$1001-$15000,Ferguson PLC
+2026-09-07,2026-08-10,Ro Khanna,D,House,UPS,Sell,$1001-$15000,United Parcel Service Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,QCOM,Sell,$15001-$50000,QUALCOMM Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,AFL,Sell,$1001-$15000,AFLAC Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,MBGL,Sell,$1001-$15000,MB
+2026-09-07,2026-08-10,Ro Khanna,D,House,DASH,Buy,$1001-$15000,DoorDash Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,APP,Sell,$1001-$15000,APPLOVIN CORP
+2026-09-07,2026-08-10,Ro Khanna,D,House,T,Buy,$1001-$15000,AT&T Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,VMC,Sell,$1001-$15000,Vulcan Materials Co
+2026-09-07,2026-08-10,Ro Khanna,D,House,TSLA,Sell,$1001-$15000,Tesla Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,BLK,Buy,$1001-$15000,Blackrock Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,FTNT,Sell,$1001-$15000,Fortinet Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,GILD,Sell,$1001-$15000,Gilead Sciences Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,Q,Buy,$1001-$15000,Q
+2026-09-07,2026-08-10,Ro Khanna,D,House,PEP,Buy,$1001-$15000,PepsiCo Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,FCX,Sell,$1001-$15000,Freeport-McMoRan Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,PWR,Buy,$1001-$15000,Quanta Services Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,TSCO,Buy,$1001-$15000,Tractor Supply Co
+2026-09-07,2026-08-10,Ro Khanna,D,House,BSX,Buy,$1001-$15000,Boston Scientific Corp
+2026-09-07,2026-08-10,Ro Khanna,D,House,TMUS,Sell,$1001-$15000,T-Mobile US Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,ETN,Buy,$1001-$15000,Eaton Corp PLC
+2026-09-07,2026-08-10,Ro Khanna,D,House,LOW,Buy,$1001-$15000,Lowe's Cos Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,ITW,Buy,$1001-$15000,Illinois Tool Works Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,APO,Buy,$1001-$15000,Apollo Global Management Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,CHTR,Buy,$1001-$15000,Charter Communications Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,LEN,Buy,$1001-$15000,Lennar Corp
+2026-09-07,2026-08-10,Ro Khanna,D,House,NOW,Sell,$1001-$15000,ServiceNow Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,TTWO,Sell,$1001-$15000,Take-Two Interactive Software Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,MLM,Sell,$1001-$15000,Martin Marietta Materials Inc
+2026-09-07,2026-08-10,Ro Khanna,D,House,NXPI,Buy,$1001-$15000,NXP Semiconductors NV
+2026-09-07,2026-08-10,Ro Khanna,D,House,MCK,Buy,$1001-$15000,McKesson Corp
+2026-09-07,2026-08-10,Ro Khanna,D,House,AMT,Sell,$1001-$15000,American Tower Corp
+2026-09-07,2026-08-07,Ro Khanna,D,House,JNJ,Sell,$1001-$15000,Johnson & Johnson
+2026-09-07,2026-08-07,Ro Khanna,D,House,MRK,Buy,$15001-$50000,Merck & Co Inc
+2026-09-07,2026-08-07,Ro Khanna,D,House,TMO,Buy,$1001-$15000,Thermo Fisher Scientific Inc
+2026-09-07,2026-08-07,Ro Khanna,D,House,GOOGL,Sell,$1001-$15000,Alphabet Inc
+2026-09-07,2026-08-07,Ro Khanna,D,House,TMUS,Sell,$1001-$15000,T-Mobile US Inc
+2026-09-07,2026-08-07,Ro Khanna,D,House,MSFT,Buy,$1001-$15000,Microsoft Corp
+2026-09-07,2026-08-07,Ro Khanna,D,House,AMRZ,Buy,$1001-$15000,AM
+2026-09-07,2026-08-07,Ro Khanna,D,House,MRVL,Buy,$1001-$15000,Marvell Technology Inc
+2026-09-07,2026-08-06,Ro Khanna,D,House,BRK,Buy,$50001-$100000,Barclays Bank PLC
+2026-09-07,2026-08-06,Ro Khanna,D,House,BRK,Buy,$100001-$250000,Barclays Bank PLC
+2026-09-07,2026-08-06,Ro Khanna,D,House,BRK,Buy,$15001-$50000,Barclays Bank PLC
+2026-09-07,2026-08-04,Ro Khanna,D,House,MODG,Sell,$1001-$15000,MO MODG
+2026-09-07,2026-08-04,Ro Khanna,D,House,PINS,Sell,$1001-$15000,Pinterest Inc
+2026-09-07,2026-07-31,Gilbert Cisneros,D,House,MSB,Buy,$15001-$50000,MS MSB
+2026-09-07,2026-07-30,Gilbert Cisneros,D,House,CRNX,Sell (Full),$15001-$50000,Crinetics Pharmaceuticals Inc
+2026-09-07,2026-07-30,Gilbert Cisneros,D,House,ALKS,Buy,$15001-$50000,AL ALKS
+2026-09-07,2026-07-30,Gilbert Cisneros,D,House,PRAX,Buy,$1001-$15000,PR PRAX
+2026-09-07,2026-07-24,Gilbert Cisneros,D,House,ADBE,Sell (Partial),$1001-$15000,Adobe Inc
+2026-09-07,2026-07-24,Gilbert Cisneros,D,House,BABA,Sell (Full),$100001-$250000,Alibaba Group Holding Limited ADS
+2026-09-07,2026-07-23,Gilbert Cisneros,D,House,NSA,Exchange,$15001-$50000,NS NSA
+2026-09-07,2026-07-21,Gilbert Cisneros,D,House,GBCI,Buy,$1001-$15000,Glacier Bancorp Inc
+2026-09-07,2026-07-21,Gilbert Cisneros,D,House,SMTC,Sell (Partial),$1001-$15000,Semtech Corporation
+2026-09-07,2026-07-21,Gilbert Cisneros,D,House,VIAV,Sell (Partial),$1001-$15000,Viavi Solutions Inc
+2026-09-07,2026-07-21,Gilbert Cisneros,D,House,FDX,Sell (Full),$1001-$15000,FedEx Corporation Common Stock
+2026-09-07,2026-07-21,Gilbert Cisneros,D,House,SAIL,Buy,$1001-$15000,SA SAIL
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,ZTS,Sell (Partial),$1001-$15000,Zoetis Inc
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,APP,Buy,$1001-$15000,Applovin Corporation
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,DD,Sell (Full),$1001-$15000,DuPont De Nemours Inc
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,ACN,Buy,$1001-$15000,Accenture Plc Class A
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,CRWD,Buy,$1001-$15000,CrowdStrike Holdings Inc
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,CMCSA,Sell (Full),$1001-$15000,Comcast Corporation Class A
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,NVDA,Buy,$1001-$15000,NVIDIA Corporation
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,PSKY,Sell (Full),$1001-$15000,PS PSKY
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,EA,Sell (Partial),$1001-$15000,Electronic Arts Inc
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,MRVL,Buy,$1001-$15000,Marvell Technology Inc
+2026-09-07,2026-07-17,Gilbert Cisneros,D,House,LITE,Sell (Full),$1001-$15000,Lumentum Holdings Inc
+2026-09-07,2026-07-15,Gilbert Cisneros,D,House,SFM,Buy,$15001-$50000,Sprouts Farmers Market Inc
+2026-09-07,2026-07-15,Gilbert Cisneros,D,House,EPAC,Buy,$1001-$15000,Enerpac Tool Group Corp
+2026-09-07,2026-07-15,Gilbert Cisneros,D,House,FN,Sell (Full),$15001-$50000,Fabrinet Ordinary Shares
+2026-09-07,2026-07-15,Gilbert Cisneros,D,House,PCVX,Buy,$1001-$15000,PC PCVX
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,MTX,Buy,$1001-$15000,Minerals Technologies Inc
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,NHI,Buy,$1001-$15000,National Health Investors Inc
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,IRT,Buy,$1001-$15000,Independence Realty Trust Inc
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,ABCB,Buy,$1001-$15000,Ameris Bancorp
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,HQY,Buy,$1001-$15000,HealthEquity Inc
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,HMN,Buy,$1001-$15000,Horace Mann Educators Corp
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,COCO,Buy,$1001-$15000,The Vita Coco Company Inc
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,BCPC,Buy,$1001-$15000,Balchem Corporation
+2026-09-07,2026-07-10,Gilbert Cisneros,D,House,SF,Buy,$1001-$15000,Stifel Financial Corporation
+2026-09-07,2026-07-02,Gilbert Cisneros,D,House,AVAV,Sell (Full),$1001-$15000,AeroVironment
+2026-09-07,2026-07-02,Gilbert Cisneros,D,House,CRDO,Sell (Full),$1001-$15000,Credo Technology Group Holding Ltd
+2026-09-04,2026-08-28,Jonathan Jackson,D,House,VSAT,Sell (Partial),$1001-$15000,ViaSat Inc
+2026-09-04,2026-08-27,Jonathan Jackson,D,House,VSAT,Sell (Partial),$1001-$15000,ViaSat Inc
+2026-09-03,2026-08-18,John McGuire,R,House,AAPL,Sell (Partial),$1001-$15000,Apple Inc
+2026-09-03,2026-08-18,John McGuire,R,House,NVDA,Buy,$1001-$15000,NVIDIA Corporation
+2026-09-03,2026-08-17,John McGuire,R,House,AAPL,Sell (Partial),$1001-$15000,Apple Inc
+2026-09-03,2026-08-17,John McGuire,R,House,NVDA,Buy,$1001-$15000,NVIDIA Corporation
+2026-09-03,2026-08-13,Cleo Fields,D,House,AAPL,Buy,$1001-$15000,Apple Inc
+2026-09-03,2026-08-12,Cleo Fields,D,House,AAPL,Buy,$1001-$15000,Apple Inc
+2026-09-03,2026-08-12,Michael Rulli,,,ALL,Sell,$1001-$15000,The Allstate Corporation
+2026-09-03,2026-08-07,Michael Rulli,,,EQIX,Buy,$1001-$15000,Equinix Inc
+2026-09-02,2026-08-24,Kevin Hern,R,House,MDT,Sell (Full),$15001-$50000,Medtronic Plc
+2026-09-02,2026-08-24,Kevin Hern,R,House,,Buy,$100001-$250000,Canadian County Oklahoma EDL
+2026-09-02,2026-08-24,Kevin Hern,R,House,LOW,Sell (Full),$1001-$15000,Lowe's Companies Inc
+2026-09-02,2026-08-24,Kevin Hern,R,House,MRSH,Sell (Full),$1001-$15000,MR
+2026-09-02,2026-08-24,Kevin Hern,R,House,PG,Sell (Full),$50001-$100000,Procter & Gamble Company
+2026-09-02,2026-08-24,Kevin Hern,R,House,HD,Sell (Partial),$50001-$100000,Home Depot Inc
+2026-09-02,2026-08-21,Kevin Hern,R,House,MSFT,Sell (Partial),$15001-$50000,Microsoft Corporation
+2026-09-02,2026-08-21,Kevin Hern,R,House,VLTO,Sell (Full),$1001-$15000,Veralto Corp
+2026-09-02,2026-08-19,Kevin Hern,R,House,HONA,Sell (Full),$15001-$50000,HO
+2026-09-02,2026-08-19,Kevin Hern,R,House,CL,Sell (Full),$1001-$15000,Colgate-Palmolive Company
+2026-09-02,2026-08-18,Kevin Hern,R,House,KMB,Sell (Full),$1001-$15000,Kimberly-Clark Corporation
+2026-09-02,2026-08-17,Kevin Hern,R,House,BIIB,Sell (Full),$1001-$15000,Biogen Inc
+2026-09-02,2026-08-14,Kevin Hern,R,House,VLTO,Sell (Partial),$1001-$15000,Veralto Corp
+2026-09-02,2026-08-14,Kevin Hern,R,House,ICLR,Sell (Partial),$15001-$50000,ICON Plc
+2026-09-02,2026-08-14,Kevin Hern,R,House,CARR,Sell (Full),$1001-$15000,Carrier Global Corporation
+2026-09-02,2026-08-14,Kevin Hern,R,House,ADBE,Sell (Partial),$15001-$50000,Adobe Inc
+2026-09-02,2026-08-13,Kevin Hern,R,House,NKE,Sell (Partial),$1001-$15000,Nike Inc
+2026-09-02,2026-08-13,Kevin Hern,R,House,WAT,Sell (Full),$1001-$15000,Waters Corporation
+2026-09-02,2026-08-13,Kevin Hern,R,House,BA,Sell (Full),$15001-$50000,Boeing Company
+2026-09-02,2026-08-13,Kevin Hern,R,House,GAP,Sell (Full),$1001-$15000,Gap Inc
+2026-09-02,2026-08-13,Kevin Hern,R,House,HRL,Sell (Full),$1001-$15000,Hormel Foods Corporation
+2026-09-02,2026-08-13,Kevin Hern,R,House,BA,Sell (Full),$1001-$15000,Boeing Company
+2026-09-02,2026-08-13,Sheldon Whitehouse,D,Senate,NVDA,Sell,$15001-$50000,NVIDIA Corporation
+2026-09-02,2026-08-13,Sheldon Whitehouse,D,Senate,NVDA,Sell,$1001-$15000,NVIDIA Corporation
+2026-09-02,2026-08-13,Sheldon Whitehouse,D,Senate,LRCX,Sell,$1001-$15000,Lam Research Corp
+2026-09-02,2026-08-12,Sheldon Whitehouse,D,Senate,AMGN,Sell,$1001-$15000,Amgen Inc
+2026-09-02,2026-08-10,Kevin Hern,R,House,DIS,Sell (Full),$15001-$50000,Walt Disney Company
+2026-09-02,2026-08-10,Kevin Hern,R,House,OTIS,Sell (Full),$1001-$15000,Otis Worldwide Corporation
+2026-09-02,2026-08-10,Kevin Hern,R,House,VLTO,Sell (Full),$1001-$15000,Veralto Corp
+2026-09-02,2026-08-06,Sheldon Whitehouse,D,Senate,SDZNY,Sell,$1001-$15000,Sandoz Group AG
+2026-09-02,2026-08-05,Kevin Hern,R,House,PG,Sell (Full),$1001-$15000,Procter & Gamble Company
+2026-09-02,2026-08-05,Kevin Hern,R,House,ALC,Sell (Full),$1001-$15000,Alcon Inc
