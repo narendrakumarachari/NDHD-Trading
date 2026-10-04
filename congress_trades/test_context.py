@@ -80,6 +80,11 @@ class SignalTests(ReaderCase):
         self.assertEqual(ctx["cluster"], {"direction": "Buy", "filers": ["A", "B"]})
         self.assertIn("Advisory only", ctx["detail"])
 
+    def test_share_class_symbol_matches_either_spelling(self):
+        self.write([trade("A", ticker="BRK.B"), trade("B", ticker="BRK.B")])
+        self.assertIsNotNone(self.reader.context_for("BRK-B", AS_OF))
+        self.assertIsNotNone(self.reader.context_for("BRK.B", AS_OF))
+
     def test_unverified_rows_are_ignored(self):
         self.write([trade("A"), trade("B", status="unverified")])
         self.assertIsNone(self.reader.context_for("NVDA", AS_OF))

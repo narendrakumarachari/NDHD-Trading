@@ -150,6 +150,21 @@ class MergeTests(unittest.TestCase):
         kept, dropped = merge_sources([verified()], others)
         self.assertEqual((len(kept), dropped), (3, 0))
 
+    def test_share_class_spelling_does_not_hide_a_match(self):
+        # Regression: the aggregator wrote BRK-B, the House filing BRK.B, and
+        # the same Salazar trade showed twice (once verified, once not checked).
+        off = verified(ticker="BRK.B", company="Berkshire Hathaway Inc. New", type="Purchase")
+        agg = to_trade(row(politician="Pat Example", ticker="BRK-B", company="Berkshire Hathaway Inc", type="Buy"))
+        self.assertEqual((off.ticker, agg.ticker), ("BRK.B", "BRK.B"))
+        self.assertEqual(agg.sector, "Financials")
+        kept, dropped = merge_sources([off], [agg])
+        self.assertEqual((kept, dropped), ([], 1))
+
+    def test_canonical_ticker_leaves_ordinary_tickers_alone(self):
+        from congress_trades.normalize import canonical_ticker
+        self.assertEqual([canonical_ticker(t) for t in ("brk/b", "BF B", "AAPL", "BRK", "", None)],
+                         ["BRK.B", "BF.B", "AAPL", "BRK", None, None])
+
     def test_senate_aggregator_row_never_matches_a_house_filing(self):
         kept, dropped = merge_sources([verified()], [to_trade(row(politician="Pat Example", chamber="Senate"))])
         self.assertEqual(dropped, 0)

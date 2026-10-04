@@ -77,6 +77,17 @@ class Trade:
     record: int | None = None
 
 
+SHARE_CLASS = re.compile(r"^([A-Z]{1,6})[-/ ]([A-Z]{1,2})$")
+
+
+def canonical_ticker(raw: str | None) -> str | None:
+    """One spelling per share class: 'BRK-B', 'BRK/B' and 'brk b' all become
+    'BRK.B', the form the House filings and Alpaca use. Without this the same
+    trade from two sources looks like two different stocks."""
+    ticker = (raw or "").strip().upper()
+    return SHARE_CLASS.sub(r"\1.\2", ticker) or None
+
+
 def parse_amount(raw: str) -> tuple[int, int | None]:
     text = raw.replace(" ", "")
     if m := RANGE.search(text):
@@ -116,7 +127,7 @@ def clean_name(company: str) -> str:
 
 
 def to_trade(row: dict, source: str = "congressflow.com", source_status: str = "unverified") -> Trade:
-    ticker = (row.get("ticker") or "").strip().upper() or None
+    ticker = canonical_ticker(row.get("ticker"))
     company = clean_name(row["company"])
     low, high = parse_amount(row["amount"])
     traded, filed = date.fromisoformat(row["traded"]), date.fromisoformat(row["filed"])

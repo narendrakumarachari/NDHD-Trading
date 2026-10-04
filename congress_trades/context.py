@@ -27,6 +27,8 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
+from .normalize import canonical_ticker
+
 STALE_BUSINESS_DAYS = 3
 CLUSTER_DAYS = 14
 CLUSTER_MIN_FILERS = 2
@@ -77,6 +79,11 @@ class ContextReader:
                 self._data, self._error = data, None
         return self._data
 
+    def snapshot(self) -> tuple[dict | None, str | None]:
+        """(data, None) when the file loads, else (None, why). No warning is logged."""
+        data = self._load()
+        return data, (None if data is not None else self._error or "no data")
+
     def context_for(self, symbol: str, as_of: date) -> dict | None:
         data = self._load()
         if data is None:
@@ -88,6 +95,7 @@ class ContextReader:
             self._warn(f"{self.path} is stale: built for {data_as_of}, {age} business days before {as_of}", as_of)
             return None
 
+        symbol = canonical_ticker(symbol) or symbol
         today, since = as_of.isoformat(), (as_of - timedelta(days=CLUSTER_DAYS)).isoformat()
         recent = [
             t for t in data["trades"]
