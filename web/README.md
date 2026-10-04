@@ -10,29 +10,45 @@ trigger the kill switch, submit a manual order) gated by the same
 
 It talks to `api/main.py` (FastAPI) over REST + a WebSocket for live pushes.
 
-## Why there's no build step
+## How it's built
 
-This machine's Node.js is v10.16.3 (from 2019) with npm 6.9 - too old for
-Vite, Create React App, or any current bundler. Rather than depend on a
-toolchain that doesn't run here, this app loads React 18 straight from a
-CDN (esm.sh) via an [import map](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap)
-in `index.html`, and uses [htm](https://github.com/developit/htm) (tagged
-template literals bound to `React.createElement`) instead of JSX, so no
-compile step is needed at all - the browser runs the `.js` files directly.
-If you later have Node 18+ available, migrating this to a Vite + real JSX
-setup is a natural upgrade; the component structure under `src/` would
-carry over largely as-is.
+The UI is **TypeScript + React 18 (TSX)** under `src/`, type-checked in
+strict mode and compiled by `tsc` (TypeScript 7) into `dist/`. There is no
+bundler: `tsc` emits one ES module per source file, and `index.html` loads
+`dist/app.js`. React itself still comes from esm.sh through the
+[import map](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap)
+in `index.html`, so `npm` is only a build-time tool.
+
+| Path | What it is |
+| --- | --- |
+| `src/types.ts` | The API's response shapes, mirroring `api/schemas.py`. Update both together. |
+| `src/api.ts` | REST client, the `/ws` live-data hook, and a polling hook for slow data |
+| `src/app.tsx` | Page layout and actions |
+| `src/components/*.tsx` | One file per panel, including `CongressPanel.tsx` |
+| `package.json` / `package-lock.json` | Exact pins (`typescript`, `@types/react` 18, `@types/react-dom` 18) |
+| `dist/`, `node_modules/` | Generated, git-ignored |
+
+The machine's system Node.js is v10 (2019), too old for current
+TypeScript, so the repo uses a portable Node 24 LTS in `.tools/node`
+(git-ignored, downloaded from nodejs.org and SHA-256 checked). Any Node 24+
+works.
 
 ## Running it
 
-The dashboard is served as static files by the API process itself - there
-is nothing separate to start.
+The dashboard is served as static files by the API process itself. Build
+it once (and again after changing anything in `src/`), then start the API:
 
 ```powershell
-# from the repository root, with the project venv active
-pip install -r requirements-api.txt
+# from the repository root
+$env:PATH = "$PWD\.tools\node;$env:PATH"      # or any Node 24+
+cd web; npm ci --ignore-scripts; npm run build; cd ..
+
+# with the project venv active
 uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
+
+`npm run watch` recompiles on save while you edit. If `dist/` is missing,
+the API logs a warning and the page stays blank.
 
 Then open **http://127.0.0.1:8000/** in a browser. Swagger is at `/docs`.
 
@@ -53,6 +69,17 @@ request and as a `?api_key=` query param on the WebSocket connection.
 Everything else (Alpaca credentials, `STATE_FILE`, risk limits, ...) comes
 from the same `.env` the trading engine (`portfolio_engine.py`) reads -
 this API process shares that configuration and that state file.
+
+## Congress trades panel
+
+`GET /api/congress` (read-only, `api/routers/congress.py` →
+`congress_trades/view.py`) feeds the "Congress trades" section, and
+`/congress/ledger` serves the full ledger page built by
+`congress_trades.build_dashboard`. It shows the data's freshness, whether
+the engine's advisory rule would fire for each symbol it trades or holds
+(and why not), any stock meeting that rule, the most-traded stocks and
+latest official filings, and the filings that need a human. It is research
+and advisory only: nothing in it can place, size, block or change an order.
 
 ## What this can and can't do
 
