@@ -8,13 +8,35 @@ or sizes orders.** What the engines may do with it is decided in the
 Personal, non-commercial use only. The Senate eFD site prohibits commercial
 use of its reports. `data/` is git-ignored, so never republish its contents.
 
+## How the data flows (picture)
+
+![How the Congress trade data flows](../docs/congress-data-flow.svg)
+
+The same picture opens from the dashboard's Congress panel ("How it works").
+
+## Pulling new data (on demand, incremental)
+
+Nothing pulls automatically. Click **Pull latest filings** in the dashboard's
+Congress panel (or run the command below). Each pull:
+
+1. asks the House Clerk whether its index changed since our copy (HTTP
+   `If-Modified-Since`; an unchanged index is one small request, no download);
+2. downloads only filings not already in `data\house\` (or whose download
+   failed last time), one at a time with a 2-second pause;
+3. reads only PDFs it hasn't read before (results cached in
+   `data\house\parsed\`, re-read only if the parser version changes);
+4. keeps every filing pulled so far (`data\house\filings.json` is cumulative),
+   and rebuilds `data\congress_trades.json` for the 60-day window.
+
+The engine picks up the new file on its next cycle; it still only logs and alerts.
+
 ## Run
 
 ```powershell
 # Official House PTRs (verified) + aggregator CSV for the rest (unverified)
 python -m congress_trades.build_dashboard congress_trades\sample\raw_congressflow.csv --house --as-of 2026-10-03
 
-# Rebuild from the cached House filings, no network
+# Rebuild from the local store, no network
 python -m congress_trades.build_dashboard congress_trades\sample\raw_congressflow.csv --house --no-fetch --as-of 2026-10-03
 
 # Aggregator CSV only (every row unverified)

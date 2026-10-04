@@ -1,8 +1,8 @@
 // web/src/api.ts
 // Thin REST client + WebSocket hook for the dashboard API (api/main.py).
 
-import { useEffect, useRef, useState } from "react";
-import type { Alert, LiveData, LiveMessage, Settings } from "./types.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Alert, CongressPull, CongressView, LiveData, LiveMessage, Settings } from "./types.js";
 
 const SETTINGS_KEY = "ndhd_dashboard_settings_v1";
 
@@ -75,6 +75,7 @@ const EMPTY: LiveData = {
   wheels: [],
   risk: null,
   logLines: [],
+  market: null,
   lastUpdated: null,
 };
 
@@ -88,6 +89,9 @@ export function useLiveData(settings: Settings) {
   const [data, setData] = useState<LiveData>(EMPTY);
   const [newAlerts, setNewAlerts] = useState<Alert[]>([]);
   const seenAlertKeys = useRef(new Set<string>());
+  // The first snapshot carries alerts that happened before the page opened.
+  // They belong in the feed, not as pop-ups; only later arrivals toast.
+  const alertsSeeded = useRef(false);
   const retryDelay = useRef(RECONNECT_MIN_MS);
   const socketRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -121,11 +125,22 @@ export function useLiveData(settings: Settings) {
             seenAlertKeys.current.add(key);
             return true;
           });
-          if (fresh.length) setNewAlerts((prev) => [...prev, ...fresh]);
+          if (!alertsSeeded.current) {
+            alertsSeeded.current = true;
+          } else if (fresh.length) {
+            setNewAlerts((prev) => [...prev, ...fresh]);
+          }
           break;
         }
         case "strategy":
-          setData((prev) => ({ ...prev, stocks: msg.stocks, wheels: msg.wheels, risk: msg.risk, lastUpdated: new Date().toISOString() }));
+          setData((prev) => ({
+            ...prev,
+            stocks: msg.stocks,
+            wheels: msg.wheels,
+            risk: msg.risk,
+            market: msg.market ?? prev.market,
+            lastUpdated: new Date().toISOString(),
+          }));
           break;
         case "log":
           setData((prev) => {
@@ -190,31 +205,56 @@ export function useLiveData(settings: Settings) {
   return { connected, lastError, data, newAlerts, consumeNewAlert, clearLogs };
 }
 
-/** Polls a REST endpoint on an interval (for data that changes slowly, like /api/congress). */
-export function usePolled<T>(settings: Settings, path: string, everyMs: number) {
-  const [value, setValue] = useState<T | null>(null);
+const PULL_STATUS_POLL_MS = 2000;
+
+/**
+ * Congress data, on demand. The view is read from the local data file once
+ * when the page opens and again after a pull - never on a timer. `pull()`
+ * asks the server to fetch only what's new from the House Clerk; while that
+ * runs, its status is checked every 2 s, and polling stops when it finishes.
+ */
+export function useCongress(settings: Settings) {
+  const [view, setView] = useState<CongressView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pullStatus, setPullStatus] = useState<CongressPull | null>(null);
+  const message = (exc: unknown) => (exc instanceof Error ? exc.message : String(exc));
+
+  const load = useCallback(async () => {
+    try {
+      setView(await apiFetch<CongressView>(settings, "/api/congress"));
+      setError(null);
+    } catch (exc) {
+      setError(message(exc));
+    }
+  }, [settings.apiBase, settings.apiKey]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const next = await apiFetch<T>(settings, path);
-        if (!cancelled) {
-          setValue(next);
-          setError(null);
-        }
-      } catch (exc) {
-        if (!cancelled) setError(exc instanceof Error ? exc.message : String(exc));
-      }
-    }
     void load();
-    const timer = setInterval(() => void load(), everyMs);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [settings.apiBase, settings.apiKey, path, everyMs]);
+    apiFetch<CongressPull>(settings, "/api/congress/refresh").then(setPullStatus, () => undefined);
+  }, [load]);
 
-  return { value, error };
+  const running = pullStatus?.state === "running";
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const next = await apiFetch<CongressPull>(settings, "/api/congress/refresh");
+        setPullStatus(next);
+        if (next.state !== "running") void load();
+      } catch (exc) {
+        setError(message(exc));
+      }
+    }, PULL_STATUS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [running, load]);
+
+  async function pull() {
+    try {
+      setPullStatus(await apiFetch<CongressPull>(settings, "/api/congress/refresh", { method: "POST" }));
+    } catch (exc) {
+      setError(message(exc));
+    }
+  }
+
+  return { view, error, pullStatus, pull };
 }

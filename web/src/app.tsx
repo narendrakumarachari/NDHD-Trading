@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { apiFetch, loadSettings, saveSettings, useLiveData, usePolled } from "./api.js";
-import type { Alert, CongressView, ManualOrderRequest, ManualOrderResult, Settings } from "./types.js";
+import { apiFetch, loadSettings, saveSettings, useCongress, useLiveData } from "./api.js";
+import type { Alert, CongressSymbol, ManualOrderRequest, ManualOrderResult, Settings } from "./types.js";
 
 import { AlertsFeed, ToastStack } from "./components/Alerts.js";
 import { CongressPanel } from "./components/CongressPanel.js";
@@ -14,14 +14,19 @@ import { OrdersTable, PositionsTable } from "./components/Tables.js";
 import { TopBar } from "./components/TopBar.js";
 
 const MAX_EQUITY_POINTS = 180;
-const CONGRESS_REFRESH_MS = 5 * 60 * 1000; // filings change daily; no need to push them over the socket
 
 type Modal = null | "settings" | "kill-switch" | "manual-order" | { type: "close"; symbol: string };
 
 function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings());
   const { connected, lastError, data, newAlerts, consumeNewAlert, clearLogs } = useLiveData(settings);
-  const congress = usePolled<CongressView>(settings, "/api/congress", CONGRESS_REFRESH_MS);
+  // Congress data loads once and after an on-demand pull; never on a timer.
+  const congress = useCongress(settings);
+  const congressBySymbol = useMemo(() => {
+    const map: Record<string, CongressSymbol> = {};
+    for (const s of congress.view?.your_symbols ?? []) map[s.symbol] = s;
+    return map;
+  }, [congress.view]);
 
   const [equitySeries, setEquitySeries] = useState<number[]>([]);
   const [toasts, setToasts] = useState<Alert[]>([]);
@@ -105,6 +110,7 @@ function App() {
       <TopBar
         account={data.account}
         connected={connected}
+        congress={congress.view}
         onOpenSettings={() => setModal("settings")}
         onOpenKillSwitch={() => setModal("kill-switch")}
         killSwitchBusy={killSwitchBusy}
@@ -156,12 +162,18 @@ function App() {
 
         <div className="section-title">Strategies</div>
         <div className="grid-2">
-          <StockPanel stocks={data.stocks} />
-          <WheelPanel wheels={data.wheels} />
+          <StockPanel stocks={data.stocks} market={data.market} congress={congressBySymbol} />
+          <WheelPanel wheels={data.wheels} market={data.market} congress={congressBySymbol} />
         </div>
 
         <div className="section-title">Congress trades (research · advisory only)</div>
-        <CongressPanel view={congress.value} error={congress.error} settings={settings} />
+        <CongressPanel
+          view={congress.view}
+          error={congress.error}
+          settings={settings}
+          pullStatus={congress.pullStatus}
+          onPull={congress.pull}
+        />
 
         <div className="section-title">Orders & activity</div>
         <div className="grid-2">

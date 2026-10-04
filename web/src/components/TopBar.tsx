@@ -1,14 +1,17 @@
-import type { Account } from "../types.js";
+import type { Account, CongressView } from "../types.js";
+import { congressAge } from "./CongressPanel.js";
 
 interface Props {
   account: Account | null;
   connected: boolean;
+  congress: CongressView | null;
   onOpenSettings: () => void;
   onOpenKillSwitch: () => void;
   killSwitchBusy: boolean;
 }
 
-export function TopBar({ account, connected, onOpenSettings, onOpenKillSwitch, killSwitchBusy }: Props) {
+export function TopBar({ account, connected, congress, onOpenSettings, onOpenKillSwitch, killSwitchBusy }: Props) {
+  const age = congressAge(congress);
   return (
     <div className="topbar">
       <div className="brand">
@@ -24,6 +27,10 @@ export function TopBar({ account, connected, onOpenSettings, onOpenKillSwitch, k
         <span className={`dot ${connected ? "up" : "down"}`} />
         {connected ? "Live" : "Reconnecting…"}
       </span>
+
+      <a className={`badge congress-age ${age.tone}`} href="#congress" title="Congress trades data: how old it is">
+        Congress data: {age.label}
+      </a>
 
       <div className="topbar-spacer" />
 

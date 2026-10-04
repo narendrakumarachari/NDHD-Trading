@@ -264,6 +264,11 @@ and are marked unverified. It is personal, non-commercial research, and
 python -m congress_trades.build_dashboard congress_trades\sample\raw_congressflow.csv --house
 ```
 
+![How the Congress trade data flows](docs/congress-data-flow.svg)
+
+New filings are pulled only when you click **Pull latest filings** on the
+dashboard, and only what's new is downloaded; everything pulled before is kept.
+
 The engine can optionally log and alert when a symbol it trades shows a recent
 cluster of lawmakers trading it (`CONGRESS_CONTEXT_ENABLED=true`, off by
 default). This is advisory only. It never changes an order, a size, a stop or

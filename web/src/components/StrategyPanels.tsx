@@ -1,5 +1,6 @@
 import { money, num, pct } from "../format.js";
-import type { StockStrategy, WheelStrategy } from "../types.js";
+import type { CongressSymbol, MarketClock, StockStrategy, WheelStrategy } from "../types.js";
+import { CongressBadge } from "./CongressPanel.js";
 
 function signalPillClass(signal: string | null): string {
   if (signal === "LONG") return "signal-long";
@@ -7,13 +8,35 @@ function signalPillClass(signal: string | null): string {
   return "signal-none";
 }
 
-export function StockPanel({ stocks }: { stocks: StockStrategy[] }) {
+/** Shown when the market is closed: quotes and spreads are left over from the last session. */
+export function MarketClosedNote({ market }: { market: MarketClock | null }) {
+  if (!market || market.is_open) return null;
+  const next = market.next_open ? new Date(market.next_open) : null;
+  return (
+    <div className="market-closed">
+      Market closed · prices and spreads are stale until it reopens
+      {next && !Number.isNaN(next.getTime())
+        ? ` (${next.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" })})`
+        : ""}
+    </div>
+  );
+}
+
+interface StockProps {
+  stocks: StockStrategy[];
+  market: MarketClock | null;
+  congress: Record<string, CongressSymbol>;
+}
+
+export function StockPanel({ stocks, market, congress }: StockProps) {
+  const closed = market !== null && !market.is_open;
   return (
     <div className="card">
       <div className="card-title">
         <span>Stock strategy</span>
         <span className="muted">EMA/ATR/ADX</span>
       </div>
+      <MarketClosedNote market={market} />
       <div className="grid-3">
         {stocks.map((s) => {
           const ind = s.indicators;
@@ -30,11 +53,17 @@ export function StockPanel({ stocks }: { stocks: StockStrategy[] }) {
               {ind.available ? (
                 <table style={{ marginTop: "10px" }}>
                   <tbody>
-                    <tr><td className="muted">Price</td><td className="mono">{money(ind.price)}</td></tr>
+                    <tr><td className="muted">Price</td><td className="mono">{money(ind.price)}{closed && <span className="muted"> (last)</span>}</td></tr>
                     <tr><td className="muted">EMA fast/slow</td><td className="mono">{num(ind.ema_fast)} / {num(ind.ema_slow)}</td></tr>
                     <tr><td className="muted">ATR</td><td className="mono">{num(ind.atr)}</td></tr>
                     <tr><td className="muted">ADX</td><td className="mono">{num(ind.adx, 1)} {ind.trending ? "(trending)" : "(choppy)"}</td></tr>
-                    <tr><td className="muted">Spread</td><td className="mono">{pct(ind.spread_pct, { digits: 3 })}</td></tr>
+                    <tr>
+                      <td className="muted">Spread</td>
+                      <td className={`mono ${closed ? "muted" : ""}`}>
+                        {pct(ind.spread_pct, { digits: 3 })}
+                        {closed && " (stale)"}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               ) : (
@@ -51,6 +80,7 @@ export function StockPanel({ stocks }: { stocks: StockStrategy[] }) {
                   </tbody>
                 </table>
               )}
+              <CongressBadge s={congress[s.symbol]} />
             </div>
           );
         })}
@@ -59,13 +89,20 @@ export function StockPanel({ stocks }: { stocks: StockStrategy[] }) {
   );
 }
 
-export function WheelPanel({ wheels }: { wheels: WheelStrategy[] }) {
+interface WheelProps {
+  wheels: WheelStrategy[];
+  market: MarketClock | null;
+  congress: Record<string, CongressSymbol>;
+}
+
+export function WheelPanel({ wheels, market, congress }: WheelProps) {
   return (
     <div className="card">
       <div className="card-title">
         <span>Wheel strategy</span>
         <span className="muted">CSP ⇄ covered call</span>
       </div>
+      <MarketClosedNote market={market} />
       <div className="grid-3">
         {wheels.map((w) => (
           <div className="card" key={w.symbol} style={{ boxShadow: "none" }}>
@@ -98,6 +135,7 @@ export function WheelPanel({ wheels }: { wheels: WheelStrategy[] }) {
                 No open leg.
               </div>
             )}
+            <CongressBadge s={congress[w.symbol]} />
           </div>
         ))}
       </div>

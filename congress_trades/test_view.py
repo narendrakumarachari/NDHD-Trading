@@ -66,6 +66,24 @@ class ViewTests(unittest.TestCase):
         self.assertEqual(view["engine_rule_clusters"], [])
         self.assertEqual(view["most_active"][0]["ticker"], "NVDA")
 
+    def test_identical_lots_are_one_row_with_a_count_and_owners_stay_apart(self):
+        self.write([trade("A"), trade("A"), trade("A", owner="spouse"), trade("B", direction="Sell")])
+        view = dashboard_view(self.path, {"NVDA": ["held"]}, AS_OF)
+        nvda = view["your_symbols"][0]
+        lots = sorted((t["filer"], t["owner"], t["lots"]) for t in nvda["verified_trades"])
+        self.assertEqual(lots, [("A", "self", 2), ("A", "spouse", 1), ("B", "self", 1)])
+        self.assertEqual((nvda["window_buyers"], nvda["window_sellers"]), (1, 1))
+        self.assertEqual(sum(t["lots"] for t in view["recent_verified"]), 4)
+
+    def test_store_summary_passes_through(self):
+        self.write([trade("A")])
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        data["summary"]["store"] = {"filings_total": 80, "first_filing_date": "2026-08-05", "last_filing_date": "2026-10-01",
+                                    "last_pull": {"at": "2026-10-03T12:00:00-04:00", "new_filings": ["1", "2"]}}
+        self.path.write_text(json.dumps(data), encoding="utf-8")
+        store = dashboard_view(self.path, {}, AS_OF)["store"]
+        self.assertEqual((store["filings_total"], store["last_pull_new_filings"]), (80, 2))
+
     def test_share_class_symbol_and_needs_review_pass_through(self):
         review = [{"filing_id": "9116267", "filer": "Paper Filer", "filing_date": "2026-09-07",
                    "filing_url": "https://example.invalid/9116267.pdf", "reason": "paper filing"}]

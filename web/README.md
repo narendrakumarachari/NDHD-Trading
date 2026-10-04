@@ -72,14 +72,23 @@ this API process shares that configuration and that state file.
 
 ## Congress trades panel
 
-`GET /api/congress` (read-only, `api/routers/congress.py` →
-`congress_trades/view.py`) feeds the "Congress trades" section, and
-`/congress/ledger` serves the full ledger page built by
-`congress_trades.build_dashboard`. It shows the data's freshness, whether
-the engine's advisory rule would fire for each symbol it trades or holds
-(and why not), any stock meeting that rule, the most-traded stocks and
-latest official filings, and the filings that need a human. It is research
-and advisory only: nothing in it can place, size, block or change an order.
+`GET /api/congress` (`api/routers/congress.py` → `congress_trades/view.py`)
+feeds the "Congress trades" section. It loads once when the page opens and
+again after a pull, never on a timer. The compact view shows the data's age,
+whether the engine's advisory rule would fire for each symbol it trades or
+holds (and why not), and the running engine's own advisory setting (from its
+heartbeat file). "Show research details" (remembered per browser) adds the
+most-traded stocks, latest official filings and filings that need a human.
+Strategy cards carry a one-line congress badge, and the top bar shows the
+data's age.
+
+**Pull latest filings** calls `POST /api/congress/refresh`, which runs one
+incremental pull in the background (only new filings are downloaded and
+read; everything pulled before is kept) and `GET /api/congress/refresh`
+reports progress. It writes data files only. `/congress/ledger` serves the
+full ledger page and `/congress/how-it-works` the picture in
+`docs/congress-data-flow.svg`. Nothing in this panel can place, size, block
+or change an order.
 
 ## What this can and can't do
 

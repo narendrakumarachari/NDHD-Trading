@@ -36,6 +36,25 @@ def _trade(t: dict) -> dict:
     return {k: t.get(k) for k in TRADE_FIELDS}
 
 
+def _grouped(trades: list[dict], limit: int) -> list[dict]:
+    """Official filings list separate lots (e.g. two trusts, same day, same
+    bracket) as separate rows, which read like duplicates. Show one row per
+    identical lot with a `lots` count; different owners stay separate rows."""
+    out: list[dict] = []
+    index: dict[tuple, dict] = {}
+    for t in trades:
+        key = (t.get("filer"), t.get("ticker"), t.get("direction"), t.get("trade_date"), t.get("filing_date"),
+               t.get("amount_low"), t.get("amount_high"), t.get("owner"))
+        if key in index:
+            index[key]["lots"] += 1
+            continue
+        if len(out) == limit:
+            continue
+        index[key] = {**_trade(t), "lots": 1}
+        out.append(index[key])
+    return out
+
+
 def _reason(symbol: str, ctx: dict | None, recent: list[dict], stale: bool) -> str:
     """One plain sentence: why the engine's rule did or didn't fire for this symbol."""
     if ctx:
@@ -58,7 +77,8 @@ def _empty(status: str, message: str, path: Path) -> dict:
     return {"status": status, "message": message, "data_file": str(path), "as_of": None, "window_days": None,
             "business_days_old": None, "stale": False, "counts": {}, "by_party": {}, "your_symbols": [],
             "engine_rule_clusters": [], "most_active": [], "recent_verified": [], "needs_review": [],
-            "ledger_available": path.with_name("congress-trade-ledger.html").exists(), "note": NOTE}
+            "ledger_available": path.with_name("congress-trade-ledger.html").exists(), "store": None,
+            "note": NOTE}
 
 
 def dashboard_view(path: str | Path, roles: dict[str, list[str]], as_of: date,
@@ -94,7 +114,8 @@ def dashboard_view(path: str | Path, roles: dict[str, list[str]], as_of: date,
     for raw, why in sorted(roles.items()):
         symbol = canonical_ticker(raw) or raw
         ctx = context.get(symbol)
-        recent = [t for t in verified_stock if t["ticker"] == symbol and t["filing_date"] >= since]
+        mine = [t for t in by_filed if t["ticker"] == symbol]
+        recent = [t for t in mine if t["filing_date"] >= since]
         your_symbols.append({
             "symbol": symbol,
             "roles": sorted(set(why)),
@@ -102,7 +123,9 @@ def dashboard_view(path: str | Path, roles: dict[str, list[str]], as_of: date,
             "reason": _reason(symbol, ctx, recent, stale),
             "headline": ctx["headline"] if ctx else None,
             "cluster": ctx["cluster"] if ctx else None,
-            "verified_trades": [_trade(t) for t in by_filed if t["ticker"] == symbol][:PER_SYMBOL],
+            "window_buyers": len({t["filer"] for t in mine if t["direction"] == "Buy"}),
+            "window_sellers": len({t["filer"] for t in mine if t["direction"] == "Sell"}),
+            "verified_trades": _grouped(mine, PER_SYMBOL),
             "unverified_count": sum(1 for t in trades if t.get("ticker") == symbol and t.get("source_status") != "verified"),
         })
 
@@ -139,9 +162,24 @@ def dashboard_view(path: str | Path, roles: dict[str, list[str]], as_of: date,
         "engine_rule_clusters": [{"ticker": k, "direction": c["cluster"]["direction"], "filers": c["cluster"]["filers"],
                                   "headline": c["headline"]} for k, c in context.items() if c["cluster"]],
         "most_active": most_active,
-        "recent_verified": [_trade(t) for t in by_filed[:RECENT]],
+        "recent_verified": _grouped(by_filed, RECENT),
         "needs_review": [{k: r.get(k) for k in ("filing_id", "filer", "filing_date", "filing_url", "reason", "record")}
                          for r in data.get("needs_review", []) if isinstance(r, dict)],
         "ledger_available": path.with_name("congress-trade-ledger.html").exists(),
+        "store": _store(data["summary"].get("store")),
         "note": NOTE,
+    }
+
+
+def _store(store: dict | None) -> dict | None:
+    """What the cumulative House store holds (built by build_dashboard)."""
+    if not isinstance(store, dict):
+        return None
+    pull = store.get("last_pull") or {}
+    return {
+        "filings_total": int(store.get("filings_total") or 0),
+        "first_filing_date": store.get("first_filing_date"),
+        "last_filing_date": store.get("last_filing_date"),
+        "last_pull_at": pull.get("at"),
+        "last_pull_new_filings": len(pull.get("new_filings") or []),
     }

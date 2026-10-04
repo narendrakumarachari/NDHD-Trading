@@ -185,6 +185,7 @@ class CongressTradeOut(BaseModel):
     amount_mid_estimate: int = Field(description="Range midpoint. An estimate, never a share count.")
     source_status: str
     filing_url: Optional[str] = None
+    lots: int = Field(default=1, description="Identical separately-filed lots shown as one row.")
 
 
 class CongressCluster(BaseModel):
@@ -199,6 +200,8 @@ class CongressSymbolOut(BaseModel):
     reason: str = Field(description="Plain-language reason the rule did or didn't fire.")
     headline: Optional[str] = None
     cluster: Optional[CongressCluster] = None
+    window_buyers: int = Field(description="Distinct lawmakers buying it in the window (official filings).")
+    window_sellers: int = Field(description="Distinct lawmakers selling it in the window (official filings).")
     verified_trades: List[CongressTradeOut]
     unverified_count: int
 
@@ -231,6 +234,31 @@ class CongressReviewOut(BaseModel):
     record: Optional[int] = None
 
 
+class EngineStatusOut(BaseModel):
+    running: bool = Field(description="True when the engine's heartbeat is recent (a few poll cycles).")
+    seen_at: Optional[str] = None
+    congress_context_enabled: Optional[bool] = Field(
+        default=None, description="The running engine's own setting, from its heartbeat; None if not running.")
+    paper: Optional[bool] = None
+
+
+class CongressStoreOut(BaseModel):
+    filings_total: int = Field(description="Every House filing pulled so far (cumulative), not just the window.")
+    first_filing_date: Optional[str] = None
+    last_filing_date: Optional[str] = None
+    last_pull_at: Optional[str] = None
+    last_pull_new_filings: int = 0
+
+
+class CongressRefreshOut(BaseModel):
+    state: str = Field(description="'idle' | 'running' | 'done' | 'error'")
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    message: str
+    log: List[str]
+    result: Optional[Dict[str, Any]] = None
+
+
 class CongressOut(BaseModel):
     status: str = Field(description="'ok' | 'stale' | 'missing' | 'unreadable'")
     message: Optional[str] = None
@@ -242,6 +270,7 @@ class CongressOut(BaseModel):
     engine_flag_in_env: bool = Field(
         description="CONGRESS_CONTEXT_ENABLED as this API process reads it (.env). A running engine "
                     "started with a different environment may differ.")
+    engine: EngineStatusOut
     counts: Dict[str, int]
     by_party: Dict[str, Dict[str, int]]
     your_symbols: List[CongressSymbolOut]
@@ -250,6 +279,7 @@ class CongressOut(BaseModel):
     recent_verified: List[CongressTradeOut]
     needs_review: List[CongressReviewOut]
     ledger_available: bool
+    store: Optional[CongressStoreOut] = None
     note: str
 
 

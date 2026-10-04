@@ -144,13 +144,20 @@ export interface LiveData {
   wheels: WheelStrategy[];
   risk: Risk | null;
   logLines: LogEntry[];
+  market: MarketClock | null;
   lastUpdated: string | null;
+}
+
+export interface MarketClock {
+  is_open: boolean;
+  next_open: string | null;
+  next_close: string | null;
 }
 
 // WebSocket messages from api/ws.py.
 export type LiveMessage =
   | { type: "tick"; account: Account | null; positions: Position[]; orders: Order[]; alerts: Alert[] }
-  | { type: "strategy"; stocks: StockStrategy[]; wheels: WheelStrategy[]; risk: Risk | null }
+  | { type: "strategy"; stocks: StockStrategy[]; wheels: WheelStrategy[]; risk: Risk | null; market?: MarketClock | null }
   | { type: "log"; entries: LogEntry[]; backlog?: boolean }
   | { type: "error"; tier: string; message: string };
 
@@ -197,6 +204,7 @@ export interface CongressTrade {
   amount_mid_estimate: number;
   source_status: string;
   filing_url: string | null;
+  lots: number;
 }
 
 export interface CongressCluster {
@@ -211,6 +219,8 @@ export interface CongressSymbol {
   reason: string;
   headline: string | null;
   cluster: CongressCluster | null;
+  window_buyers: number;
+  window_sellers: number;
   verified_trades: CongressTrade[];
   unverified_count: number;
 }
@@ -243,6 +253,42 @@ export interface CongressReview {
   record: number | null;
 }
 
+export interface CongressStore {
+  filings_total: number;
+  first_filing_date: string | null;
+  last_filing_date: string | null;
+  last_pull_at: string | null;
+  last_pull_new_filings: number;
+}
+
+export interface CongressPullResult {
+  new_filings: number;
+  new_filing_ids: string[];
+  parsed_now: number;
+  index: Record<string, string>;
+  requests: number;
+  filings_total: number;
+  verified: number;
+  unverified: number;
+  needs_review: number;
+}
+
+export interface CongressPull {
+  state: "idle" | "running" | "done" | "error";
+  started_at: string | null;
+  finished_at: string | null;
+  message: string;
+  log: string[];
+  result: CongressPullResult | null;
+}
+
+export interface EngineStatus {
+  running: boolean;
+  seen_at: string | null;
+  congress_context_enabled: boolean | null;
+  paper: boolean | null;
+}
+
 export interface CongressView {
   status: CongressStatus;
   message: string | null;
@@ -252,6 +298,7 @@ export interface CongressView {
   business_days_old: number | null;
   stale: boolean;
   engine_flag_in_env: boolean;
+  engine: EngineStatus;
   counts: Record<string, number>;
   by_party: Record<string, { buys: number; sells: number }>;
   your_symbols: CongressSymbol[];
@@ -260,5 +307,6 @@ export interface CongressView {
   recent_verified: CongressTrade[];
   needs_review: CongressReview[];
   ledger_available: boolean;
+  store: CongressStore | null;
   note: string;
 }
