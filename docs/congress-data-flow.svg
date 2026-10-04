@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1310" viewBox="0 0 1000 1310" role="img" aria-labelledby="title desc" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <title id="title">How NDHD gets Congress trade data, and what it does with it</title>
+  <desc id="desc">Lawmakers report stock trades. The House posts the forms. When you click Pull latest filings, our downloader fetches only new forms. Typed forms are read and marked official; scanned forms go to a person; copy-website rows stay not checked. The cleaner makes one tidy file, used by the ledger page, the dashboard panel and the trading robot, which only writes a note and an alert. Congress data never buys, sells or changes the size of a trade.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0b1e39"/>
+    </marker>
+    <style>
+      .box { stroke-width: 2; rx: 16; }
+      .step { fill: #eef2fa; stroke: #9db3dc; }
+      .ok { fill: #e8f7ee; stroke: #7cc79c; }
+      .warn { fill: #fff8e6; stroke: #e2c26b; }
+      .grey { fill: #f3f4f6; stroke: #b9bfc8; }
+      .out { fill: #e8f0fe; stroke: #8fb0ee; }
+      .rule { fill: #fff0f5; stroke: #e8749b; }
+      .file { fill: #0b1e39; stroke: #0b1e39; }
+      .h { font-size: 21px; font-weight: 700; fill: #0b1e39; }
+      .t { font-size: 16px; fill: #1f2937; }
+      .s { font-size: 14px; fill: #4b5563; }
+      .line { stroke: #0b1e39; stroke-width: 2.5; fill: none; }
+      .dash { stroke: #9ca3af; stroke-width: 2; fill: none; stroke-dasharray: 6 6; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1000" height="1310" fill="#ffffff"/>
+  <text x="500" y="46" text-anchor="middle" font-size="28" font-weight="800" fill="#0b1e39">How the Congress trade data flows</text>
+  <text x="500" y="76" text-anchor="middle" class="s">Follow the arrows from the top. Each box is one step.</text>
+
+  <!-- 1. Lawmakers trade -->
+  <rect class="box step" x="50" y="100" width="900" height="80"/>
+  <text x="80" y="132" class="h">🏛️ 1. Lawmakers buy and sell stocks</text>
+  <text x="80" y="160" class="t">A law (the STOCK Act) says they must tell everyone, within 45 days.</text>
+  <path class="line" d="M500,180 V212" marker-end="url(#arrow)"/>
+
+  <!-- 2. House posts forms -->
+  <rect class="box step" x="50" y="215" width="900" height="80"/>
+  <text x="80" y="247" class="h">📄 2. The House posts their forms online</text>
+  <text x="80" y="275" class="t">The House Clerk website keeps a list of forms, one PDF per report.</text>
+  <path class="line" d="M500,295 V342" marker-end="url(#arrow)"/>
+  <text x="518" y="324" class="s" font-weight="600">👆 only when you click “Pull latest filings”</text>
+
+  <!-- 3. Downloader -->
+  <rect class="box step" x="50" y="345" width="900" height="130"/>
+  <text x="80" y="377" class="h">🤖 3. Our downloader</text>
+  <text x="80" y="405" class="t">• First it asks: “Is anything new since last time?” If not, it stops right there.</text>
+  <text x="80" y="429" class="t">• It downloads only the new forms, and waits 2 seconds between each one (being polite).</text>
+  <text x="80" y="453" class="t">• It keeps every form it already has, so nothing is downloaded twice.</text>
+  <path class="line" d="M190,475 V522" marker-end="url(#arrow)"/>
+  <path class="line" d="M500,475 V522" marker-end="url(#arrow)"/>
+
+  <!-- 4a. Reader -->
+  <rect class="box ok" x="50" y="525" width="280" height="125"/>
+  <text x="70" y="557" class="h">🔍 4. Our reader</text>
+  <text x="70" y="585" class="t">Typed forms: it reads</text>
+  <text x="70" y="607" class="t">every trade on them.</text>
+  <text x="70" y="633" class="t" font-weight="700" fill="#0b7a41">✅ Marked “Official”</text>
+
+  <!-- 4b. Scanned -->
+  <rect class="box warn" x="360" y="525" width="280" height="125"/>
+  <text x="380" y="557" class="h">✋ Scanned forms</text>
+  <text x="380" y="585" class="t">Handwritten or photo forms.</text>
+  <text x="380" y="607" class="t">A person reads these.</text>
+  <text x="380" y="633" class="t" font-weight="700" fill="#7a5a00">We never guess.</text>
+
+  <!-- 4c. Copy websites -->
+  <rect class="box grey" x="670" y="525" width="280" height="125"/>
+  <text x="690" y="557" class="h">🌐 Copy websites</text>
+  <text x="690" y="585" class="t">Sites that copy forms</text>
+  <text x="690" y="607" class="t">(Senate, and extras).</text>
+  <text x="690" y="633" class="t" font-weight="700" fill="#4b5563">⚠️ Marked “Not checked”</text>
+  <path class="dash" d="M810,480 V522"/>
+  <text x="818" y="500" class="s">separate source</text>
+
+  <path class="line" d="M190,650 V697" marker-end="url(#arrow)"/>
+  <path class="line" d="M810,650 V697" marker-end="url(#arrow)"/>
+  <path class="dash" d="M500,650 V697"/>
+  <text x="508" y="680" class="s">listed for you to read</text>
+
+  <!-- 5. Cleaner -->
+  <rect class="box step" x="50" y="700" width="900" height="110"/>
+  <text x="80" y="732" class="h">🧹 5. The cleaner</text>
+  <text x="80" y="760" class="t">• Throws away copies, and applies corrections (when a lawmaker fixes or deletes a trade).</text>
+  <text x="80" y="784" class="t">• Treats BRK-B and BRK.B as the same stock. Keeps everything, shows the last 60 days.</text>
+  <path class="line" d="M500,810 V847" marker-end="url(#arrow)"/>
+
+  <!-- File -->
+  <rect class="box file" x="290" y="850" width="420" height="52"/>
+  <text x="500" y="883" text-anchor="middle" font-size="18" font-weight="700" fill="#ffffff">📦 One tidy file: congress_trades.json</text>
+  <path class="line" d="M500,902 V925 M190,925 H810"/>
+  <path class="line" d="M190,925 V947" marker-end="url(#arrow)"/>
+  <path class="line" d="M500,925 V947" marker-end="url(#arrow)"/>
+  <path class="line" d="M810,925 V947" marker-end="url(#arrow)"/>
+
+  <!-- 6. Uses -->
+  <rect class="box out" x="50" y="950" width="280" height="195"/>
+  <text x="70" y="982" class="h">📊 Ledger page</text>
+  <text x="70" y="1010" class="t">Charts and every trade,</text>
+  <text x="70" y="1032" class="t">with links to the real</text>
+  <text x="70" y="1054" class="t">forms.</text>
+  <text x="70" y="1090" class="t" font-weight="700">For you to read.</text>
+
+  <rect class="box out" x="360" y="950" width="280" height="195"/>
+  <text x="380" y="982" class="h">🖥️ Dashboard panel</text>
+  <text x="380" y="1010" class="t">Would the robot alert?</text>
+  <text x="380" y="1032" class="t">Most-traded stocks,</text>
+  <text x="380" y="1054" class="t">newest official forms,</text>
+  <text x="380" y="1076" class="t">forms to read by hand,</text>
+  <text x="380" y="1098" class="t">and the Pull button.</text>
+
+  <rect class="box out" x="670" y="950" width="280" height="195"/>
+  <text x="690" y="982" class="h">🤖 Trading robot</text>
+  <text x="690" y="1010" class="t">Looks only at its own stocks.</text>
+  <text x="690" y="1032" class="t">2+ lawmakers traded it the</text>
+  <text x="690" y="1054" class="t">same way in 14 days, and</text>
+  <text x="690" y="1076" class="t">nobody the other way?</text>
+  <text x="690" y="1104" class="t" font-weight="700">Yes → 🔔 a note and an alert.</text>
+  <text x="690" y="1128" class="t">No → it stays quiet.</text>
+
+  <!-- 7. Golden rule -->
+  <rect class="box rule" x="50" y="1175" width="900" height="105"/>
+  <text x="80" y="1209" class="h" fill="#8a1349">🚫 The golden rule</text>
+  <text x="80" y="1238" class="t">Congress data never buys, never sells, and never changes how much to trade.</text>
+  <text x="80" y="1262" class="t">The robot’s safety rules (stop-loss, kill switch, money limits) always decide.</text>
+</svg>

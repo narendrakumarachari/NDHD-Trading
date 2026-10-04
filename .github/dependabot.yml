@@ -1,0 +1,25 @@
+# Weekly update PRs. A pip PR only bumps the == pin it touches; regenerate the
+# hashed lock with the uv command in the developer skill before merging, or CI
+# (which installs from requirements.lock.txt) will not test the new version.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # The dashboard's TypeScript toolchain (web/package.json, exact pins + lockfile).
+  # Keep @types/react on 18.x while index.html loads React 18.3.1.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "@types/react*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

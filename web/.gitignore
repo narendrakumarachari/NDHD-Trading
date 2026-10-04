@@ -1,0 +1,8 @@
+# Installed packages and compiled output; rebuild with `npm ci && npm run build`.
+node_modules/
+dist/
+
+# The root .gitignore ignores *.json (state files); these are source, not state.
+!package.json
+!package-lock.json
+!tsconfig.json

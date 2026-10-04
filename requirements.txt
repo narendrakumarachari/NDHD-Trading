@@ -1,0 +1,7 @@
+# Trading engine (portfolio_engine.py, alpaca_wheel_strategy.py) and the
+# congress_trades research pipeline (pypdf reads official House PTR PDFs).
+# Direct dependencies only, pinned exactly. Full transitive pins with hashes: requirements.lock.txt
+pypdf==6.19.0
+python-dotenv==1.2.4
+requests==2.34.2
+yfinance==1.7.0

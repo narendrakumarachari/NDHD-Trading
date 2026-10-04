@@ -498,3 +498,47 @@ footer.hint {
   .grid-2 { grid-template-columns: 1fr; }
   .grid-3 { grid-template-columns: 1fr 1fr; }
 }
+
+/* ------------------------------------------------------- congress trades */
+.congress-intro { margin: 6px 0 14px; font-size: 13px; }
+.congress-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+.congress-subtitle { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--navy); margin: 18px 0 8px; }
+.congress-help { margin: 0 0 10px; font-size: 12px; }
+.congress-why { font-size: 13px; margin: 8px 0; }
+.congress-name { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.congress-clusters { margin: 0; padding-left: 18px; line-height: 1.9; }
+.congress-review { margin-top: 16px; font-size: 13px; }
+.congress-review summary { cursor: pointer; font-weight: 600; color: var(--navy); }
+.congress-review ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
+.congress-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 18px; font-size: 12px; }
+.congress a { color: var(--navy-700); }
+.congress code { font-size: 11px; }
+.pill.warn { background: var(--amber-tint); color: #7a5a00; border-color: #f2dca0; }
+.pill.party-d { background: #e8f0fe; color: #1a4fb3; border-color: #c9dbfb; }
+.pill.party-r { background: #fdecec; color: #b32626; border-color: #f7cccc; }
+.pill.party-i, .pill.party-u { background: var(--bg-subtle); color: var(--muted); }
+@media (max-width: 900px) { .congress-tiles { grid-template-columns: 1fr 1fr; } }
+
+/* ------------------------------------------- congress: compact view, pull */
+.small { font-size: 12px; }
+.pull-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 14px; }
+.pull-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; flex: 1; min-width: 220px; }
+.congress-symbols td { vertical-align: top; }
+.congress-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.congress-details { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 4px; }
+.pill.lots { margin-left: 6px; background: var(--navy-tint); color: var(--navy-700); }
+.pill.age-ok { background: var(--green-tint); color: #0b7a41; border-color: #bfe9d0; }
+.pill.age-warn { background: var(--amber-tint); color: #7a5a00; border-color: #f2dca0; }
+.pill.age-bad { background: var(--pink-tint); color: var(--pink-strong); border-color: var(--pink-border); }
+.badge.congress-age { text-decoration: none; color: inherit; }
+.badge.congress-age.warn { background: var(--amber-tint); color: #7a5a00; border-color: #f2dca0; }
+.badge.congress-age.bad { background: var(--pink-tint); color: var(--pink-strong); border-color: var(--pink-border); }
+.congress-badge { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 12px; color: inherit; text-decoration: none; }
+.congress-badge .label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; color: var(--navy); }
+.market-closed { background: var(--amber-tint); color: #7a5a00; border: 1px solid #f2dca0; border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; margin: 8px 0 12px; }
+.lean { display: flex; flex-direction: column; gap: 3px; }
+.lean-track { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg-subtle); }
+.lean-buy { background: var(--green); }
+.lean-sell { background: var(--pink); }
+.lean-labels { display: flex; justify-content: space-between; font-size: 11px; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) { .toast-stack { left: 8px; right: 8px; } .toast { max-width: none; } }

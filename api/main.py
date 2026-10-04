@@ -36,7 +36,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import deps, logs, ws
-from .routers import alerts, control, market, risk, strategy
+from .routers import alerts, congress, control, market, risk, strategy
 
 LOGGER = logging.getLogger("dashboard-api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -95,6 +95,8 @@ app.include_router(strategy.router)
 app.include_router(risk.router)
 app.include_router(alerts.router)
 app.include_router(control.router)
+app.include_router(congress.router)
+app.include_router(congress.ledger_router)
 
 
 @app.get("/api/health", tags=["health"])
@@ -139,6 +141,9 @@ async def ws_endpoint(websocket: WebSocket) -> None:
 
 
 if _WEB_DIR.exists():
+    if not (_WEB_DIR / "dist" / "app.js").exists():
+        LOGGER.warning("web/dist/ is not built - the dashboard page will be blank. "
+                       "Build it: cd web; npm ci; npm run build (see web/README.md).")
     app.mount("/", StaticFiles(directory=str(_WEB_DIR), html=True), name="dashboard")
 else:
     LOGGER.warning("web/ directory not found at %s - dashboard UI will not be served.", _WEB_DIR)
