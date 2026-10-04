@@ -259,6 +259,50 @@ def parse_manifest(manifest: dict) -> tuple[list[dict], list[dict]]:
     return rows, needs_review
 
 
+# Bump when the parser's output changes, so cached results are re-read once.
+PARSER_VERSION = 1
+
+
+def parse_manifest_cached(manifest: dict, cache_dir: Path) -> tuple[list[dict], list[dict], int]:
+    """Like parse_manifest, but each PDF is read once: its result is saved in
+    cache_dir/parsed/<DocID>.json and reused while the parser version and the
+    PDF's size are unchanged. Returns (rows, needs_review, filings_parsed_now).
+    Name, party and filing date always come from the current manifest entry."""
+    out_dir = cache_dir / "parsed"
+    rows: list[dict] = []
+    needs_review: list[dict] = []
+    parsed_now = 0
+    for entry in manifest["filings"]:
+        pdf = Path(entry["pdf_path"]) if entry.get("pdf_path") else None
+        size = pdf.stat().st_size if pdf and pdf.exists() else None
+        cache = out_dir / f"{entry['doc_id']}.json"
+        parsed: ParsedFiling | None = None
+        if size is not None and cache.exists():
+            try:
+                saved = json.loads(cache.read_text(encoding="utf-8"))
+                if saved.get("version") == PARSER_VERSION and saved.get("pdf_size") == size:
+                    parsed = ParsedFiling(entry["doc_id"], saved["rows"], saved["needs_review"])
+            except (OSError, ValueError, KeyError):
+                parsed = None
+        if parsed is None:
+            parsed = parse_filing(entry)
+            parsed_now += 1
+            if size is not None and not entry.get("error"):
+                out_dir.mkdir(parents=True, exist_ok=True)
+                tmp = cache.with_name(cache.name + ".tmp")
+                tmp.write_text(json.dumps({"version": PARSER_VERSION, "pdf_size": size, "rows": parsed.rows,
+                                           "needs_review": parsed.needs_review}), encoding="utf-8")
+                tmp.replace(cache)
+        for row in parsed.rows:
+            row.update(politician=entry["name"], party=entry.get("party") or "", party_note=entry.get("party_note") or "",
+                       filed=entry["filing_date"], filing_url=entry["filing_url"])
+        for item in parsed.needs_review:
+            item.update(filer=entry["name"], filing_date=entry["filing_date"], filing_url=entry["filing_url"])
+        rows += parsed.rows
+        needs_review += parsed.needs_review
+    return rows, needs_review, parsed_now
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Parse cached House PTR PDFs into trade rows.")
     ap.add_argument("--manifest", type=Path, default=Path("data") / "house" / "filings.json")

@@ -85,6 +85,11 @@ class PoliteClient:
         self.requests = 0
 
     def get(self, url: str) -> bytes:
+        return self.get_conditional(url)[1]
+
+    def get_conditional(self, url: str, headers: dict[str, str] | None = None) -> tuple[int, bytes, dict[str, str]]:
+        """(status, body, response headers). Send If-Modified-Since / If-None-Match
+        in `headers` and an unchanged resource comes back as (304, b"", {})."""
         for attempt in range(RETRIES):
             if self._last is not None:
                 wait = self.pause - (self.clock() - self._last)
@@ -92,10 +97,14 @@ class PoliteClient:
                     self.sleep(wait)
             self._last = self.clock()
             self.requests += 1
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
             try:
-                with self.opener(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=60) as resp:
-                    return resp.read()
+                with self.opener(request, timeout=60) as resp:
+                    return getattr(resp, "status", 200), resp.read(), dict(getattr(resp, "headers", None) or {})
             except urllib.error.HTTPError as exc:
+                if exc.code == 304:
+                    exc.close()
+                    return 304, b"", {}
                 if exc.code < 500 or attempt == RETRIES - 1:
                     raise
             except urllib.error.URLError:
@@ -136,17 +145,36 @@ def select_ptrs(filings: list[Filing], as_of: date, window_days: int) -> list[Fi
     return sorted(picked, key=lambda f: (f.filing_date, f.doc_id))
 
 
-def load_index(client: PoliteClient, year: int, cache_dir: Path) -> list[Filing]:
-    """The index changes daily, so it is always refreshed. If the download fails,
-    the last cached copy is used so one bad request doesn't stop the build."""
+def load_index(client: PoliteClient, year: int, cache_dir: Path) -> tuple[list[Filing], str]:
+    """Returns (filings, outcome). Asks the server "changed since my copy?"
+    (If-Modified-Since / If-None-Match), so an unchanged index costs one tiny
+    request and no download. If the request fails, the cached copy is used."""
     path = cache_dir / "index" / f"{year}FD.zip"
+    meta_path = path.with_name(f"{year}FD.meta.json")
+    meta = {}
+    if path.exists() and meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except ValueError:
+            meta = {}
+    conditional = {k: v for k, v in (("If-Modified-Since", meta.get("last_modified")),
+                                     ("If-None-Match", meta.get("etag"))) if v}
     try:
-        _write_atomic(path, client.get(INDEX_URL.format(year=year)))
+        status, body, headers = client.get_conditional(INDEX_URL.format(year=year), conditional)
+        if status == 304:
+            outcome = "unchanged"
+        else:
+            _write_atomic(path, body)
+            lower = {k.lower(): v for k, v in headers.items()}
+            _write_atomic(meta_path, json.dumps({"last_modified": lower.get("last-modified"),
+                                                 "etag": lower.get("etag")}).encode("utf-8"))
+            outcome = "updated"
     except (urllib.error.URLError, OSError):
         if not path.exists():
             raise
+        outcome = "offline: used cached copy"
     with zipfile.ZipFile(path) as z:
-        return parse_index(z.read(f"{year}FD.xml"))
+        return parse_index(z.read(f"{year}FD.xml")), outcome
 
 
 def cache_pdf(client: PoliteClient, filing: Filing, cache_dir: Path) -> Path:
@@ -214,32 +242,63 @@ def party_for(filing: Filing, roster: dict[str, dict]) -> tuple[str | None, str 
     return None, None
 
 
+def load_store(cache_dir: Path) -> dict:
+    """The cumulative manifest: every filing ever pulled, keyed by DocID."""
+    try:
+        manifest = json.loads((cache_dir / "filings.json").read_text(encoding="utf-8"))
+        return {e["doc_id"]: e for e in manifest.get("filings", []) if isinstance(e, dict) and e.get("doc_id")}
+    except (OSError, ValueError):
+        return {}
+
+
 def fetch(as_of: date, window_days: int = 60, cache_dir: Path = DEFAULT_CACHE,
           client: PoliteClient | None = None, log: Callable[[str], None] = print) -> dict:
+    """Incremental and cumulative. Checks the index (a 304 when unchanged),
+    downloads only PTRs not already in the store (or whose download failed
+    before), and keeps every filing pulled so far - including ones that have
+    since aged out of the window - in data/house/filings.json."""
     client = client or PoliteClient()
+    store = load_store(cache_dir)
     filings: list[Filing] = []
+    index_outcome: dict[str, str] = {}
     for year in years_for_window(as_of, window_days):
-        filings += load_index(client, year, cache_dir)
+        year_filings, outcome = load_index(client, year, cache_dir)
+        filings += year_filings
+        index_outcome[str(year)] = outcome
     ptrs = select_ptrs(filings, as_of, window_days)
-    roster = load_roster(client, cache_dir, date.today())
-    log(f"{len(ptrs)} House PTRs filed {as_of - timedelta(days=window_days)} to {as_of}")
+    new = [f for f in ptrs
+           if not (store.get(f.doc_id) or {}).get("pdf_path") or (store.get(f.doc_id) or {}).get("error")]
+    roster = load_roster(client, cache_dir, date.today()) if new else {}
+    log(f"House index {index_outcome}; {len(ptrs)} PTRs in the window, {len(new)} new to download")
 
-    entries = []
-    for f in ptrs:
+    for f in new:
         party, party_note = party_for(f, roster)
         entry = {**asdict(f), "name": f.name, "filing_url": f.url, "scanned_hint": f.scanned,
                  "party": party, "party_note": party_note, "pdf_path": None, "error": None}
         try:
             entry["pdf_path"] = str(cache_pdf(client, f, cache_dir))
+            log(f"  downloaded {f.doc_id} {f.name} (filed {f.filing_date})")
         except (urllib.error.URLError, OSError, ValueError) as exc:
             entry["error"] = f"download failed: {exc}"
             log(f"  {f.doc_id} {f.name}: {entry['error']}")
-        entries.append(entry)
+            if isinstance(exc, urllib.error.HTTPError):
+                exc.close()  # release the response body; the filing is retried next pull
+        store[f.doc_id] = entry
 
-    manifest = {"as_of": as_of.isoformat(), "window_days": window_days,
-                "roster_loaded": bool(roster), "filings": entries}
+    entries = sorted(store.values(), key=lambda e: (e.get("filing_date") or "", e["doc_id"]))
+    manifest = {
+        "as_of": as_of.isoformat(),
+        "window_days": window_days,
+        "filings": entries,
+        "last_pull": {
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "index": index_outcome,
+            "new_filings": [f.doc_id for f in new],
+            "requests": client.requests,
+        },
+    }
     _write_atomic(cache_dir / "filings.json", json.dumps(manifest, indent=2).encode("utf-8"))
-    log(f"{client.requests} HTTP requests; manifest -> {cache_dir / 'filings.json'}")
+    log(f"{client.requests} HTTP requests; {len(entries)} filings stored -> {cache_dir / 'filings.json'}")
     return manifest
 
 

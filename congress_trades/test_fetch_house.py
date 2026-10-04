@@ -135,6 +135,94 @@ class PolitenessTests(unittest.TestCase):
         self.assertEqual(c.get("https://example.invalid/x"), b"ok")
 
 
+def index_zip(*members):
+    """A {YEAR}FD.zip like the House Clerk's, with PTR entries (doc_id, MM/DD/YYYY)."""
+    import zipfile
+    xml = "".join(
+        f"<Member><Prefix /><Last>Example</Last><First>Pat</First><Suffix /><FilingType>P</FilingType>"
+        f"<StateDst>OK01</StateDst><Year>2026</Year><FilingDate>{filed}</FilingDate><DocID>{doc}</DocID></Member>"
+        for doc, filed in members)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("2026FD.xml", f'<?xml version="1.0"?><FinancialDisclosure>{xml}</FinancialDisclosure>')
+    return buf.getvalue()
+
+
+class RoutingOpener:
+    """Serves the index zip, PDFs and the roster by URL; answers 304 when the
+    request says If-Modified-Since and the index hasn't changed."""
+
+    def __init__(self, index: bytes):
+        self.index, self.urls, self.modified = index, [], "Fri, 02 Oct 2026 13:00:09 GMT"
+
+    def __call__(self, request, timeout):
+        url = request.full_url
+        self.urls.append(url)
+        if url.endswith("FD.zip"):
+            if request.get_header("If-modified-since") == self.modified:
+                raise urllib.error.HTTPError(url, 304, "Not Modified", {}, io.BytesIO())
+            resp = FakeResponse(self.index)
+            resp.headers = {"Last-Modified": self.modified}
+            return resp
+        if url.endswith(".pdf"):
+            return FakeResponse(b"%PDF-1.7 " + url.encode())
+        return FakeResponse(b"[]")  # roster
+
+
+class IncrementalPullTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cache = Path(self.tmp.name)
+
+    def pull(self, opener, as_of=date(2026, 10, 3)):
+        from congress_trades.fetch_house import fetch
+        client = PoliteClient(opener=opener, pause=0, sleep=lambda s: None, clock=lambda: 0.0)
+        return fetch(as_of, 60, self.cache, client=client, log=lambda line: None)
+
+    def test_second_pull_with_unchanged_index_downloads_nothing(self):
+        first = RoutingOpener(index_zip(("20040001", "9/25/2026"), ("20040002", "9/28/2026")))
+        manifest = self.pull(first)
+        self.assertEqual(sum(u.endswith(".pdf") for u in first.urls), 2)
+        self.assertEqual(manifest["last_pull"]["index"], {"2026": "updated"})
+
+        second = RoutingOpener(first.index)
+        manifest = self.pull(second)
+        self.assertEqual(manifest["last_pull"], {**manifest["last_pull"], "index": {"2026": "unchanged"}, "new_filings": []})
+        self.assertFalse(any(u.endswith(".pdf") for u in second.urls))
+        self.assertEqual(len(manifest["filings"]), 2)
+
+    def test_only_new_filings_are_downloaded(self):
+        self.pull(RoutingOpener(index_zip(("20040001", "9/25/2026"))))
+        grown = RoutingOpener(index_zip(("20040001", "9/25/2026"), ("20040003", "10/1/2026")))
+        grown.modified = "Sat, 03 Oct 2026 13:00:00 GMT"  # index changed
+        manifest = self.pull(grown)
+        self.assertEqual([u.rsplit("/", 1)[1] for u in grown.urls if u.endswith(".pdf")], ["20040003.pdf"])
+        self.assertEqual(manifest["last_pull"]["new_filings"], ["20040003"])
+
+    def test_store_is_cumulative_after_filings_leave_the_window(self):
+        self.pull(RoutingOpener(index_zip(("20040001", "8/10/2026"))), as_of=date(2026, 9, 1))
+        later = RoutingOpener(index_zip(("20040001", "8/10/2026"), ("20040009", "11/20/2026")))
+        later.modified = "changed"
+        manifest = self.pull(later, as_of=date(2026, 11, 25))  # 8/10 is now outside the 60-day window
+        self.assertEqual([e["doc_id"] for e in manifest["filings"]], ["20040001", "20040009"])
+
+    def test_a_failed_download_is_retried_next_pull(self):
+        class FailingPdf(RoutingOpener):
+            def __call__(self, request, timeout):
+                if request.full_url.endswith(".pdf"):
+                    self.urls.append(request.full_url)
+                    raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, io.BytesIO())
+                return super().__call__(request, timeout)
+        idx = index_zip(("20040001", "9/25/2026"))
+        manifest = self.pull(FailingPdf(idx))
+        self.assertTrue(manifest["filings"][0]["error"])
+        retry = RoutingOpener(idx)
+        manifest = self.pull(retry)
+        self.assertEqual(manifest["last_pull"]["new_filings"], ["20040001"])
+        self.assertIsNone(manifest["filings"][0]["error"])
+
+
 class PartyTests(unittest.TestCase):
     ROSTER = {"OK01": {"last": "Example", "party": "R"}, "MD06": {"last": "McClain Delaney", "party": "D"},
               "GA07": {"last": "Sample", "party": "R"}, "GA05": {"last": "Twin", "party": "D"},

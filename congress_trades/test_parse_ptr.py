@@ -116,5 +116,27 @@ class ReviewPathTests(unittest.TestCase):
         self.assertIn("asset-type code", out.needs_review[0]["reason"])
 
 
+class ParseCacheTests(unittest.TestCase):
+    def test_each_pdf_is_read_once_and_names_come_from_the_manifest(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from congress_trades import parse_ptr
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "20099999.pdf"
+            pdf.write_bytes(b"%PDF-1.7 fixture")
+            entry = {**ENTRY, "pdf_path": str(pdf), "scanned_hint": False, "error": None}
+            manifest = {"filings": [entry]}
+            with mock.patch.object(parse_ptr, "extract_rows", return_value=ELECTRONIC) as extract:
+                rows, review, parsed_now = parse_ptr.parse_manifest_cached(manifest, Path(tmp))
+                self.assertEqual((len(rows), review, parsed_now, extract.call_count), (6, [], 1, 1))
+                renamed = {"filings": [{**entry, "name": "Pat Q. Example", "party": "D"}]}
+                rows, _, parsed_now = parse_ptr.parse_manifest_cached(renamed, Path(tmp))
+                self.assertEqual((parsed_now, extract.call_count), (0, 1))  # served from the cache
+                self.assertEqual((rows[0]["politician"], rows[0]["party"]), ("Pat Q. Example", "D"))
+
+
 if __name__ == "__main__":
     unittest.main()

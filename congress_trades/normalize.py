@@ -394,7 +394,10 @@ def run_sources(official_rows: list[dict], needs_review: list[dict], aggregator_
     Official rows are verified; aggregator rows they cover are dropped; the
     rest stay unverified. needs_review lists filings or records that were not
     parsed (scanned filings, unexpected layout) so nobody mistakes them for
-    "no trades"."""
+    "no trades". Both are limited to the window, because the House store is
+    cumulative and also holds filings that have aged out of it."""
+    cutoff = date.fromordinal(as_of.toordinal() - window_days).isoformat()
+    needs_review = [r for r in needs_review if cutoff <= (r.get("filing_date") or "") <= as_of.isoformat()]
     rejected: list[dict] = []
     official: list[Trade] = []
     for row in official_rows:

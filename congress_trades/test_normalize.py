@@ -177,11 +177,12 @@ class MergeTests(unittest.TestCase):
                 w.writeheader()
                 w.writerow(row(politician="Pat Example"))                    # copy of the official row
                 w.writerow(row(politician="Sen Someone", chamber="Senate"))  # stays unverified
-            review = [{"filing_id": "9116267", "filer": "Paper Filer", "reason": "paper filing"}]
+            review = [{"filing_id": "9116267", "filer": "Paper Filer", "reason": "paper filing", "filing_date": "2026-09-07"},
+                      {"filing_id": "9000001", "filer": "Old Filer", "reason": "paper filing", "filing_date": "2026-06-01"}]
             result = run_sources([official()], review, path, date(2026, 10, 3), 60)
         c = result["summary"]["counts"]
         self.assertEqual((c["verified"], c["unverified"], c["needs_review"], c["aggregator_dropped_as_duplicate"]), (1, 1, 1, 1))
-        self.assertEqual(result["needs_review"], review)
+        self.assertEqual(result["needs_review"], review[:1])  # the June filing is outside the 60-day window
 
     def test_filing_after_as_of_is_excluded(self):
         result = run_sources([official(filed="2026-10-04")], [], None, date(2026, 10, 3), 60)
