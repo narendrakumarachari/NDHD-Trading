@@ -313,6 +313,15 @@ class Config:
         "data/congress_trades.json"
     )
 
+    # Heartbeat the running engine writes each poll cycle (pid, time, mode,
+    # and its own CONGRESS_CONTEXT_ENABLED), so the dashboard reports what
+    # the engine is actually doing rather than what .env says. Read-only
+    # for everything else; losing it changes nothing about trading.
+    status_file: str = os.getenv(
+        "ENGINE_STATUS_FILE",
+        "portfolio_engine_status.json"
+    )
+
     # Email alerting
     alerts_enabled: bool = env_bool("ALERTS_ENABLED", False)
     smtp_host: str = os.getenv("SMTP_HOST", "")
@@ -4529,11 +4538,33 @@ class PortfolioEngine:
         except Exception as exc:
             LOGGER.warning("Congress context check failed (advisory only, trading unaffected): %s", exc)
 
+    def write_status(self) -> None:
+        """Best-effort heartbeat for the dashboard (see Config.status_file).
+        Never raises: a status file that can't be written must not touch
+        the poll loop."""
+        status = {
+            "pid": os.getpid(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "paper": self.config.paper,
+            "live_trading": self.config.live_trading,
+            "poll_seconds": self.config.poll_seconds,
+            "congress_context_enabled": self.config.congress_context_enabled,
+            "congress_reader_loaded": self.congress is not None,
+        }
+        try:
+            path = Path(self.config.status_file)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(status), encoding="utf-8")
+            tmp.replace(path)
+        except Exception as exc:
+            LOGGER.debug("Could not write engine status file: %s", exc)
+
     def run_once(
         self,
     ) -> None:
 
         self.validate_config()
+        self.write_status()
 
         # Advisory only; before the clock check so it runs when closed too.
         self.congress_advisory()

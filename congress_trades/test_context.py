@@ -154,6 +154,11 @@ out["alert_keys"] = s.alerter.keys
 s.congress = None
 pe.PortfolioEngine.congress_advisory(s)
 out["off_is_noop"] = s.alerter.keys == ["congress:NVDA"]
+pe.PortfolioEngine.write_status(s)
+out["status"] = json.load(open(s.config.status_file, encoding="utf-8"))
+s.config = pe.Config(status_file="no-such-dir/x/status.json")
+pe.PortfolioEngine.write_status(s)  # must not raise
+out["status_write_failure_contained"] = True
 print(json.dumps(out))
 """
 
@@ -183,6 +188,14 @@ class EngineHookTests(unittest.TestCase):
 
     def test_a_failing_reader_never_reaches_the_poll_loop(self):
         self.assertTrue(self.default["raising_reader_contained"])
+
+    def test_engine_heartbeat_reports_its_own_setting(self):
+        status = self.default["status"]
+        self.assertFalse(status["congress_context_enabled"])
+        self.assertTrue(status["paper"])
+        self.assertIn("updated_at", status)
+        self.assertTrue(self.default["status_write_failure_contained"])
+        self.assertTrue(run_engine_check(CONGRESS_CONTEXT_ENABLED="true")["status"]["congress_context_enabled"])
 
     def test_alert_uses_the_symbol_key_once_per_day(self):
         self.assertEqual(self.default["alert_keys"], ["congress:NVDA"])
