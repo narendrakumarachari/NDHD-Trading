@@ -9,6 +9,16 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
 
+  # The dashboard's TypeScript toolchain (web/package.json, exact pins + lockfile).
+  # Keep @types/react on 18.x while index.html loads React 18.3.1.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "@types/react*"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

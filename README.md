@@ -243,6 +243,7 @@ engine's poll loop and shares the same `.env` and state file.
 
 ```powershell
 pip install --require-hashes -r requirements.lock.txt   # the lock already includes the API packages
+cd web; npm ci --ignore-scripts; npm run build; cd ..   # the UI is TypeScript; needs Node 24+ (see web/README.md)
 uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 

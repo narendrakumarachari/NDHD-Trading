@@ -30,6 +30,24 @@ jobs:
       - name: congress_trades tests
         run: python -m unittest discover -s congress_trades -t . -v
 
+      - name: Compile the dashboard API
+        run: python -m py_compile api/main.py api/schemas.py api/routers/congress.py
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      # The dashboard is TypeScript; tsc type-checks it (strict) and emits web/dist.
+      # --ignore-scripts: no package install script runs; npm audit fails on any advisory.
+      - name: Build and type-check the dashboard (web/)
+        working-directory: web
+        run: |
+          npm ci --ignore-scripts --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm audit --audit-level=low
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+
       # pip-audit runs from its own venv so it never mixes into the hashed
       # environment above. --strict fails the build on any known vulnerability
       # and on any package it could not audit.
