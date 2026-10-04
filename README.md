@@ -136,6 +136,10 @@ CI (`.github/workflows/ci.yml`) installs from the lock on Windows with Python 3.
 
 ## Installation
 
+> **Step-by-step run guide:** [docs/RUNNING.md](docs/RUNNING.md) covers setup,
+> starting the backend, frontend and engine, checking they work, stopping
+> them, and troubleshooting.
+
 Create a virtual environment:
 
 ```bash

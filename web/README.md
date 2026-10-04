@@ -35,6 +35,9 @@ works.
 
 ## Running it
 
+Full guide (setup, both services, checks, troubleshooting):
+[`docs/RUNNING.md`](../docs/RUNNING.md). Short version:
+
 The dashboard is served as static files by the API process itself. Build
 it once (and again after changing anything in `src/`), then start the API:
 
