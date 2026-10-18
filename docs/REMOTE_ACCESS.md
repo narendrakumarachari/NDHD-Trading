@@ -95,6 +95,7 @@ That's it. The kill switch is the pink button at the top right.
 | You want to | Do this |
 | --- | --- |
 | Start NDHD | `.\scripts\start-ndhd.ps1` |
+| Start NDHD at every Windows sign-in | `.\scripts\install-autostart.ps1` (undo: `-Remove`) |
 | See the private link again | `tailscale serve status` |
 | Stop sharing the dashboard (keeps it running locally) | `tailscale serve reset` |
 | Remove a lost phone | <https://login.tailscale.com/admin/machines>, then ⋯ > Remove |
