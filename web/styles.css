@@ -542,3 +542,8 @@ footer.hint {
 .lean-sell { background: var(--pink); }
 .lean-labels { display: flex; justify-content: space-between; font-size: 11px; font-variant-numeric: tabular-nums; }
 @media (max-width: 600px) { .toast-stack { left: 8px; right: 8px; } .toast { max-width: none; } }
+
+/* --------------------------------------------------------------- robinhood snapshot (reuses the congress layout) */
+.robinhood .grid-2 { margin-top: 4px; }
+.robinhood td .pill { margin-left: 6px; }
+.rh-suggestions { max-height: none; }

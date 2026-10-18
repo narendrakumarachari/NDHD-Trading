@@ -2,7 +2,7 @@
 // Thin REST client + WebSocket hook for the dashboard API (api/main.py).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Alert, CongressPull, CongressView, LiveData, LiveMessage, Settings } from "./types.js";
+import type { Alert, CongressPull, CongressView, LiveData, LiveMessage, RobinhoodView, Settings } from "./types.js";
 
 const SETTINGS_KEY = "ndhd_dashboard_settings_v1";
 
@@ -257,4 +257,28 @@ export function useCongress(settings: Settings) {
   }
 
   return { view, error, pullStatus, pull };
+}
+
+/**
+ * The Robinhood snapshot, read from the local data file when the page opens
+ * and when "Reload" is clicked. Claude Code writes the file; this only reads it.
+ */
+export function useRobinhood(settings: Settings) {
+  const [view, setView] = useState<RobinhoodView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setView(await apiFetch<RobinhoodView>(settings, "/api/robinhood"));
+      setError(null);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : String(exc));
+    }
+  }, [settings.apiBase, settings.apiKey]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { view, error, reload: load };
 }

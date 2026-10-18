@@ -30,8 +30,11 @@ jobs:
       - name: congress_trades tests
         run: python -m unittest discover -s congress_trades -t . -v
 
+      - name: robinhood_view tests
+        run: python -m unittest discover -s robinhood_view -t . -v
+
       - name: Compile the dashboard API
-        run: python -m py_compile api/main.py api/schemas.py api/routers/congress.py
+        run: python -m py_compile api/main.py api/schemas.py api/routers/congress.py api/routers/robinhood.py
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

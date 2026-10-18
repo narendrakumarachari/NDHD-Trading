@@ -310,3 +310,106 @@ export interface CongressView {
   store: CongressStore | null;
   note: string;
 }
+
+// ---------------------------------------------------------------------------
+// Robinhood snapshot (GET /api/robinhood). Human research only; read-only.
+// ---------------------------------------------------------------------------
+
+export type RobinhoodStatus = "ok" | "missing" | "unreadable";
+
+export interface RobinhoodAccount {
+  label: string;
+  last4: string;
+  kind: string | null;
+  managed: boolean | null;
+  default: boolean | null;
+  agent_can_trade: boolean | null;
+  trade_approvals_required: boolean | null;
+  total_value: number;
+  cash: number | null;
+  pending_deposits: number | null;
+  buying_power: number | null;
+}
+
+export interface RobinhoodHolding {
+  symbol: string;
+  quantity: number;
+  avg_cost: number | null;
+  price: number;
+  value: number;
+  cost: number;
+  pl: number;
+  pl_pct: number | null;
+  weight_pct: number | null;
+  next_earnings: string | null;
+  earnings_timing: string | null;
+  earnings_confirmed: boolean | null;
+  days_to_earnings: number | null;
+}
+
+export interface RobinhoodCall {
+  symbol: string;
+  contracts: number;
+  strike: number;
+  expiration: string;
+  premium: number;
+  covered: boolean;
+  strike_above_cost: boolean;
+  strike_above_price_pct: number | null;
+}
+
+export interface RobinhoodOrder {
+  asset: string;
+  kind: string;
+  side: string;
+  type: string;
+  quantity: number;
+  limit_price: number;
+  price: number | null;
+  placed: string | null;
+  age_days: number | null;
+  limit_vs_price_pct: number | null;
+}
+
+export interface RobinhoodRuleCheck {
+  rule: string;
+  detail: string;
+  unit: "%" | "count";
+  limit: number;
+  actual: number | null;
+  ok: boolean;
+}
+
+export interface RobinhoodSuggestion {
+  tone: "bad" | "warn" | "info";
+  title: string;
+  detail: string;
+  who: string;
+}
+
+export interface RobinhoodTotals {
+  all_accounts?: number;
+  stocks?: { value: number; cost: number; pl: number; pl_pct: number | null };
+  crypto?: { value: number; cost: number; pl: number; pl_pct: number | null };
+  options_value?: number;
+}
+
+export interface RobinhoodView {
+  status: RobinhoodStatus;
+  message: string | null;
+  data_file: string;
+  taken_at: string | null;
+  age_days: number | null;
+  stale: boolean;
+  prices_note: string | null;
+  accounts: RobinhoodAccount[];
+  main: RobinhoodAccount | null;
+  totals: RobinhoodTotals;
+  stocks: RobinhoodHolding[];
+  crypto: RobinhoodHolding[];
+  covered_calls: RobinhoodCall[];
+  open_orders: RobinhoodOrder[];
+  rule_checks: RobinhoodRuleCheck[];
+  suggestions: RobinhoodSuggestion[];
+  note: string;
+}

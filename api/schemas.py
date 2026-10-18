@@ -284,6 +284,100 @@ class CongressOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Robinhood snapshot (human research only; read-only)
+# ---------------------------------------------------------------------------
+
+class RobinhoodAccountOut(BaseModel):
+    label: str
+    last4: str = Field(description="Only the last four digits are ever stored or shown.")
+    kind: Optional[str] = None
+    managed: Optional[bool] = None
+    default: Optional[bool] = None
+    agent_can_trade: Optional[bool] = None
+    trade_approvals_required: Optional[bool] = None
+    total_value: float
+    cash: Optional[float] = None
+    pending_deposits: Optional[float] = None
+    buying_power: Optional[float] = None
+
+
+class RobinhoodHoldingOut(BaseModel):
+    symbol: str
+    quantity: float
+    avg_cost: Optional[float] = None
+    price: float
+    value: float
+    cost: float
+    pl: float
+    pl_pct: Optional[float] = None
+    weight_pct: Optional[float] = Field(default=None, description="Share of the account's total value.")
+    next_earnings: Optional[str] = None
+    earnings_timing: Optional[str] = None
+    earnings_confirmed: Optional[bool] = None
+    days_to_earnings: Optional[int] = None
+
+
+class RobinhoodCallOut(BaseModel):
+    symbol: str
+    contracts: int
+    strike: float
+    expiration: str
+    premium: float
+    covered: bool
+    strike_above_cost: bool
+    strike_above_price_pct: Optional[float] = None
+
+
+class RobinhoodOrderOut(BaseModel):
+    asset: str
+    kind: str
+    side: str
+    type: str
+    quantity: float
+    limit_price: float
+    price: Optional[float] = None
+    placed: Optional[str] = None
+    age_days: Optional[int] = None
+    limit_vs_price_pct: Optional[float] = None
+
+
+class RobinhoodRuleCheckOut(BaseModel):
+    rule: str
+    detail: str
+    unit: str = Field(description="'%' or 'count'")
+    limit: float
+    actual: Optional[float] = None
+    ok: bool
+
+
+class RobinhoodSuggestionOut(BaseModel):
+    tone: str = Field(description="'bad' | 'warn' | 'info'")
+    title: str
+    detail: str
+    who: str
+
+
+class RobinhoodOut(BaseModel):
+    status: str = Field(description="'ok' | 'missing' | 'unreadable'")
+    message: Optional[str] = None
+    data_file: str
+    taken_at: Optional[str] = None
+    age_days: Optional[int] = None
+    stale: bool
+    prices_note: Optional[str] = None
+    accounts: List[RobinhoodAccountOut]
+    main: Optional[RobinhoodAccountOut] = None
+    totals: Dict[str, Any]
+    stocks: List[RobinhoodHoldingOut]
+    crypto: List[RobinhoodHoldingOut]
+    covered_calls: List[RobinhoodCallOut]
+    open_orders: List[RobinhoodOrderOut]
+    rule_checks: List[RobinhoodRuleCheckOut]
+    suggestions: List[RobinhoodSuggestionOut]
+    note: str
+
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 

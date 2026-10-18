@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { apiFetch, loadSettings, saveSettings, useCongress, useLiveData } from "./api.js";
+import { apiFetch, loadSettings, saveSettings, useCongress, useLiveData, useRobinhood } from "./api.js";
 import type { Alert, CongressSymbol, ManualOrderRequest, ManualOrderResult, Settings } from "./types.js";
 
 import { AlertsFeed, ToastStack } from "./components/Alerts.js";
@@ -9,6 +9,7 @@ import { Hero } from "./components/Hero.js";
 import { LiveConsole } from "./components/LiveConsole.js";
 import { ClosePositionModal, KillSwitchModal, ManualOrderModal, SettingsModal } from "./components/Modals.js";
 import { RiskPanel } from "./components/RiskPanel.js";
+import { RobinhoodPanel } from "./components/RobinhoodPanel.js";
 import { StockPanel, WheelPanel } from "./components/StrategyPanels.js";
 import { OrdersTable, PositionsTable } from "./components/Tables.js";
 import { TopBar } from "./components/TopBar.js";
@@ -22,6 +23,8 @@ function App() {
   const { connected, lastError, data, newAlerts, consumeNewAlert, clearLogs } = useLiveData(settings);
   // Congress data loads once and after an on-demand pull; never on a timer.
   const congress = useCongress(settings);
+  // Robinhood snapshot: read once, and again when "Reload" is clicked.
+  const robinhood = useRobinhood(settings);
   const congressBySymbol = useMemo(() => {
     const map: Record<string, CongressSymbol> = {};
     for (const s of congress.view?.your_symbols ?? []) map[s.symbol] = s;
@@ -174,6 +177,9 @@ function App() {
           pullStatus={congress.pullStatus}
           onPull={congress.pull}
         />
+
+        <div className="section-title">Robinhood (your accounts · read-only)</div>
+        <RobinhoodPanel view={robinhood.view} error={robinhood.error} onReload={robinhood.reload} />
 
         <div className="section-title">Orders & activity</div>
         <div className="grid-2">
