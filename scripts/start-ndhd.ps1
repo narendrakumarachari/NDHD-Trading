@@ -88,8 +88,12 @@ if (-not $NoTailscale) {
         $status = & $ts status --json 2>$null | ConvertFrom-Json
         if ($status.BackendState -ne 'Running') {
             Say "Tailscale: not signed in. Click the Tailscale icon by the clock and log in, then run this again." Yellow
+        } elseif (-not $status.CertDomains) {
+            # Without HTTPS certificates, 'tailscale serve' waits until they're enabled; don't hang here.
+            Say "Tailscale: turn on HTTPS certificates at https://login.tailscale.com/admin/dns, then run this again." Yellow
         } else {
             & $ts serve --bg $port | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "tailscale serve failed (exit $LASTEXITCODE). Run 'tailscale serve --bg $port' to see why." }
             $phoneUrl = "https://$($status.Self.DNSName.TrimEnd('.'))/"
             $serve = & $ts serve status --json 2>$null | Out-String
             if ($serve -match '"AllowFunnel"\s*:\s*\{[^}]*true') {
