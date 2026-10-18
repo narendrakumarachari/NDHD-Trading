@@ -231,6 +231,13 @@ class Config:
     earnings_blackout_days: int = env_int(
         "WHEEL_EARNINGS_BLACKOUT_DAYS", 7
     )
+    # Funds have no earnings, so "no date returned" is the right answer for
+    # them, not a data failure. Everything else still fails closed.
+    earnings_exempt_symbols: List[str] = field(
+        default_factory=lambda: csv_env(
+            "EARNINGS_EXEMPT_SYMBOLS", "SPY,QQQ,IWM,DIA"
+        )
+    )
 
     # Runtime
     poll_seconds: int = env_int(
@@ -1430,7 +1437,63 @@ def adx(
 # EARNINGS FILTER
 # =============================================================================
 
+def next_earnings_date(
+    calendar: Any,
+    today: date,
+) -> Optional[date]:
+    """
+    The next earnings date on or after `today` from yfinance's
+    `Ticker.calendar`, or None if it lists none.
+
+    yfinance used to return a DataFrame with an "Earnings Date" column; it
+    now returns a dict ({"Earnings Date": [date, ...], ...}). Reading only
+    the DataFrame shape made every lookup look like a failure, and since
+    the filter fails closed, that blocked every entry on every symbol from
+    2026-08 until this was fixed. Accept both shapes.
+    """
+
+    raw: Any = None
+
+    if isinstance(calendar, dict):
+        raw = calendar.get("Earnings Date")
+    elif (
+        hasattr(calendar, "columns")
+        and "Earnings Date" in calendar.columns
+    ):
+        raw = calendar["Earnings Date"].tolist()
+
+    if raw is None:
+        return None
+
+    if not isinstance(raw, (list, tuple)):
+        raw = [raw]
+
+    dates: List[date] = []
+
+    for value in raw:
+        if value is None:
+            continue
+
+        try:
+            parsed = (
+                value.date()
+                if hasattr(value, "date")
+                else date.fromisoformat(str(value))
+            )
+        except Exception:
+            continue
+
+        if parsed >= today:
+            dates.append(parsed)
+
+    return min(dates) if dates else None
+
+
 class EarningsFilter:
+
+    # A failed lookup is retried at most this often, instead of on every
+    # poll (it used to hit yfinance every 30 s per symbol).
+    RETRY_SECONDS = 600
 
     def __init__(
         self,
@@ -1443,6 +1506,9 @@ class EarningsFilter:
         self.blackout_days = blackout_days
         self.config = config
         self.alerter = alerter
+        self.exempt = set(
+            config.earnings_exempt_symbols if config else ()
+        )
         # Issue #6: yfinance is an unofficial, frequently-breaking data
         # source. The filter already "fails closed" (skips trading) on
         # error, which is the safe default - but a silent fail-closed
@@ -1450,6 +1516,9 @@ class EarningsFilter:
         # without anyone noticing. Track consecutive failures per symbol
         # and alert once a threshold is crossed.
         self._consecutive_failures: Dict[str, int] = {}
+        # symbol -> (day looked up, next earnings date); one lookup a day.
+        self._known: Dict[str, Tuple[date, date]] = {}
+        self._retry_after: Dict[str, float] = {}
 
     def _note_failure(self, symbol: str, exc: Exception) -> None:
         count = self._consecutive_failures.get(symbol, 0) + 1
@@ -1486,6 +1555,19 @@ class EarningsFilter:
         if not self.enabled:
             return False
 
+        if symbol in self.exempt:
+            return False
+
+        today = date_today()
+
+        known = self._known.get(symbol)
+        if known and known[0] == today:
+            return self._blocked(symbol, known[1], today)
+
+        if time.time() < self._retry_after.get(symbol, 0.0):
+            # Still failing closed between retries.
+            return True
+
         try:
             import yfinance as yf
         except ImportError as exc:
@@ -1499,43 +1581,9 @@ class EarningsFilter:
                 symbol
             ).calendar
 
-            dates: List[date] = []
-
-            if hasattr(calendar, "columns"):
-                if (
-                    "Earnings Date"
-                    in calendar.columns
-                ):
-                    raw_values = calendar[
-                        "Earnings Date"
-                    ].tolist()
-
-                    for value in raw_values:
-                        if value is None:
-                            continue
-
-                        try:
-                            parsed = (
-                                value.date()
-                                if hasattr(
-                                    value,
-                                    "date",
-                                )
-                                else date.fromisoformat(
-                                    str(value)
-                                )
-                            )
-
-                            if parsed >= date_today():
-                                dates.append(parsed)
-
-                        except Exception:
-                            continue
-
-            next_date = (
-                min(dates)
-                if dates
-                else None
+            next_date = next_earnings_date(
+                calendar,
+                today,
             )
 
             if next_date is None:
@@ -1547,28 +1595,13 @@ class EarningsFilter:
                 self._note_failure(
                     symbol, RuntimeError("no earnings date returned")
                 )
+                self._retry_after[symbol] = time.time() + self.RETRY_SECONDS
                 return True
 
             self._note_success(symbol)
+            self._known[symbol] = (today, next_date)
 
-            days = (
-                next_date - date_today()
-            ).days
-
-            blocked = (
-                abs(days)
-                <= self.blackout_days
-            )
-
-            if blocked:
-                LOGGER.info(
-                    "%s in earnings blackout. "
-                    "Next earnings=%s",
-                    symbol,
-                    next_date,
-                )
-
-            return blocked
+            return self._blocked(symbol, next_date, today)
 
         except Exception as exc:
             LOGGER.warning(
@@ -1578,9 +1611,32 @@ class EarningsFilter:
             )
 
             self._note_failure(symbol, exc)
+            self._retry_after[symbol] = time.time() + self.RETRY_SECONDS
 
             # Fail closed.
             return True
+
+    def _blocked(
+        self,
+        symbol: str,
+        next_date: date,
+        today: date,
+    ) -> bool:
+
+        blocked = (
+            (next_date - today).days
+            <= self.blackout_days
+        )
+
+        if blocked:
+            LOGGER.info(
+                "%s in earnings blackout. "
+                "Next earnings=%s",
+                symbol,
+                next_date,
+            )
+
+        return blocked
 
 
 # =============================================================================

@@ -33,6 +33,9 @@ jobs:
       - name: robinhood_view tests
         run: python -m unittest discover -s robinhood_view -t . -v
 
+      - name: Engine tests
+        run: python -m unittest discover -s tests -t . -v
+
       - name: Compile the dashboard API
         run: python -m py_compile api/main.py api/schemas.py api/routers/congress.py api/routers/robinhood.py
 

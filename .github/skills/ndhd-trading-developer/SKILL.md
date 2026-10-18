@@ -82,7 +82,7 @@ For any stateful feature, define: valid states and transitions, the broker facts
 
 ### 4. Test for this codebase's actual failure modes
 
-The only test suite is for `congress_trades/` (`python -m unittest discover -s congress_trades -t .`, also run by CI). It includes a subprocess check of `PortfolioEngine.congress_advisory()` and the `CONGRESS_CONTEXT_ENABLED` default, and nothing else in the engines. The trading logic and `api/` still have **no** tests, so don't claim coverage that doesn't exist. When you add engine tests, prioritize in this order:
+Test suites: `congress_trades/` (`python -m unittest discover -s congress_trades -t .`), which includes a subprocess check of `PortfolioEngine.congress_advisory()` and the `CONGRESS_CONTEXT_ENABLED` default; `robinhood_view/`; and `tests/` for the engine, which so far covers only `EarningsFilter`/`next_earnings_date`. CI runs all three. The rest of the trading logic and `api/` still have **no** tests, so don't claim coverage that doesn't exist. When you add engine tests, prioritize in this order:
 
 1. pure calculations (`ema`, `atr`, `adx`, position sizing, stop math) — no API mocking needed;
 2. trailing-stop monotonicity (`StockStrategy.is_tighter`) — this must never regress;
