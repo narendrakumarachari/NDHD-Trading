@@ -1,0 +1,20 @@
+# NDHD dashboard API: serves the dashboard and its kill switch on 127.0.0.1:8000.
+# Installed by deploy/setup-server.sh (it fills in @REPO@ and @USER@).
+# Reached from your devices through Tailscale Serve only; no public port.
+[Unit]
+Description=NDHD dashboard API (127.0.0.1:8000)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/.venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+# Always come back, so the dashboard and its kill switch stay reachable.
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

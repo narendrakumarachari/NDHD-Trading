@@ -119,7 +119,15 @@ not compatible.
 
 ## 2. Start it
 
-Use **two PowerShell windows**, both at the repository root with the venv
+**One command:** `.\scripts\start-ndhd.ps1` does everything below. It checks
+`.env` is paper-only, starts the dashboard and the engine in their own
+minimized windows (skipping anything already running), turns on private
+access for your laptop and phone if Tailscale is set up
+([REMOTE_ACCESS.md](REMOTE_ACCESS.md)), and opens the browser. Options:
+`-NoEngine`, `-NoTailscale`, `-NoBrowser`. For 24/7 on a free server, see
+[SERVER.md](SERVER.md).
+
+By hand: use **two PowerShell windows**, both at the repository root with the venv
 activated (`.\.venv\Scripts\Activate.ps1`).
 
 ### Window 1: backend and frontend

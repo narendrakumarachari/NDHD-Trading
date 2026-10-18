@@ -138,7 +138,10 @@ CI (`.github/workflows/ci.yml`) installs from the lock on Windows with Python 3.
 
 > **Step-by-step run guide:** [docs/RUNNING.md](docs/RUNNING.md) covers setup,
 > starting the backend, frontend and engine, checking they work, stopping
-> them, and troubleshooting.
+> them, and troubleshooting. One-command start on Windows:
+> `.\scripts\start-ndhd.ps1`. Private access from your laptop and phone:
+> [docs/REMOTE_ACCESS.md](docs/REMOTE_ACCESS.md) (Tailscale). Running 24/7 on a
+> free server: [docs/SERVER.md](docs/SERVER.md).
 
 Create a virtual environment:
 
@@ -254,6 +257,10 @@ uvicorn api.main:app --host 127.0.0.1 --port 8000
 Open `http://127.0.0.1:8000/` for the dashboard, `/docs` for Swagger. See
 [web/README.md](web/README.md) for configuration (in particular,
 `DASHBOARD_API_KEY` for authentication) and what it can and can't do.
+
+The dashboard also has a read-only **Robinhood** panel: a snapshot of your
+own Robinhood accounts compared with this engine's limits. It can't trade;
+see [robinhood_view/README.md](robinhood_view/README.md).
 
 ## Congressional Trade Disclosures (research only)
 
