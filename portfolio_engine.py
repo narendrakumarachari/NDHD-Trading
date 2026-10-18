@@ -105,6 +105,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
 
+# Strategy decisions as pure functions (step 1 of the architecture plan).
+# ema/atr/adx and OptionCandidate are re-exported for existing callers.
+from ndhd import rules
+from ndhd.indicators import adx, atr, ema  # noqa: F401
+from ndhd.rules import OptionCandidate  # noqa: F401
+
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
@@ -143,9 +149,15 @@ class Config:
     # Alpaca
     paper: bool = env_bool("ALPACA_PAPER", True)
     live_trading: bool = env_bool("LIVE_TRADING", False)
+    # Sends orders to the Alpaca *paper* account (simulated money) without
+    # LIVE_TRADING. It has no effect unless ALPACA_PAPER=true, so it can
+    # never reach a real-money account. See orders_enabled().
+    paper_orders: bool = env_bool("PAPER_ORDERS", False)
 
     stock_feed: str = os.getenv("STOCK_FEED", "iex")
-    option_feed: str = os.getenv("OPTION_FEED", "opra")
+    # "opra" needs a signed OPRA agreement / paid data plan (403 without
+    # one); "indicative" is Alpaca's free feed and includes greeks.
+    option_feed: str = os.getenv("OPTION_FEED", "indicative")
 
     # Stock strategy
     stock_tickers: List[str] = field(
@@ -222,6 +234,11 @@ class Config:
     wheel_max_collateral_pct: float = env_float(
         "WHEEL_MAX_COLLATERAL_PCT", 25.0
     )
+    # Cap on collateral across ALL open cash-secured puts; the setting
+    # above caps one trade only.
+    wheel_max_total_collateral_pct: float = env_float(
+        "WHEEL_MAX_TOTAL_COLLATERAL_PCT", 50.0
+    )
     wheel_contract_size: int = 100
 
     # Earnings
@@ -291,8 +308,11 @@ class Config:
     use_stop_limit: bool = env_bool("USE_STOP_LIMIT", True)
     stop_limit_buffer_bps: float = env_float("STOP_LIMIT_BUFFER_BPS", 25.0)
 
-    # Wheel downside protection (Issue #5)
-    wheel_max_loss_pct: float = env_float("WHEEL_MAX_LOSS_PCT", 15.0)
+    # Wheel downside protection (Issue #5): buy a short put back once the
+    # loss reaches this % of the premium received (200 = cost to close is
+    # 3x the credit). Was 15, which closed trades on ordinary noise.
+    wheel_max_loss_pct: float = env_float("WHEEL_MAX_LOSS_PCT", 200.0)
+    wheel_stop_cooldown_days: int = env_int("WHEEL_STOP_COOLDOWN_DAYS", 5)
 
     # Data-dependency health / alerting (Issue #6)
     earnings_failure_alert_threshold: int = env_int(
@@ -505,6 +525,10 @@ class WheelState:
 
     last_order_id: Optional[str] = None
 
+    # ISO date before which no new put is sold, set when the max-loss stop
+    # closes one (don't re-sell straight into a falling stock).
+    cooldown_until: Optional[str] = None
+
 
 @dataclass
 class PortfolioState:
@@ -568,8 +592,30 @@ class StateStore:
             ) from exc
 
     def save(self, state: PortfolioState) -> None:
+        # Two processes write this file: the engine (from its in-memory
+        # copy, loaded at startup) and the dashboard API (kill switch).
+        # Without this merge the engine's next save would put back its own
+        # older kill_switch_date (often None) and silently undo a kill
+        # switch pressed in the dashboard. A halt date may only move
+        # forward; nothing in the code ever clears one (the cooldown is
+        # date-based).
+        try:
+            if self.path.exists():
+                on_disk = json.loads(self.path.read_text()).get(
+                    "kill_switch_date"
+                )
+                if on_disk and (
+                    not state.kill_switch_date
+                    or on_disk > state.kill_switch_date
+                ):
+                    state.kill_switch_date = on_disk
+        except Exception as exc:
+            LOGGER.warning(
+                "Could not re-read kill switch date before saving: %s", exc
+            )
+
         tmp = self.path.with_suffix(
-            self.path.suffix + ".tmp"
+            self.path.suffix + f".{os.getpid()}.tmp"
         )
 
         tmp.write_text(
@@ -747,6 +793,54 @@ def parse_sector_map(raw: str) -> Dict[str, str]:
         if symbol and sector:
             mapping[symbol] = sector
     return mapping
+
+
+def orders_enabled(config: "Config") -> bool:
+    """
+    Whether order calls reach the broker (otherwise they are logged as
+    DRYRUN). Two independent ways in:
+      - LIVE_TRADING=true sends to whichever account ALPACA_PAPER selects;
+      - PAPER_ORDERS=true sends only while ALPACA_PAPER=true, i.e. to the
+        paper account. It can never enable a real-money account.
+    """
+    return bool(
+        config.live_trading
+        or (config.paper and config.paper_orders)
+    )
+
+
+def parse_occ(symbol: str) -> Optional[Tuple[str, str, float]]:
+    """
+    (underlying, "call"|"put", strike) from an OCC option symbol such as
+    IBM261120P00220000 (root + YYMMDD + C/P + strike*1000), or None if the
+    symbol doesn't have that shape.
+    """
+    if len(symbol) < 16:
+        return None
+    root, type_char, strike_digits = symbol[:-15], symbol[-9], symbol[-8:]
+    if not root or type_char not in ("C", "P") or not strike_digits.isdigit():
+        return None
+    return (
+        root,
+        "call" if type_char == "C" else "put",
+        int(strike_digits) / 1000.0,
+    )
+
+
+def short_put_collateral(
+    positions: Iterable[Dict[str, Any]],
+    contract_size: int = 100,
+) -> float:
+    """Cash securing every open short put: strike x 100 x contracts."""
+    total = 0.0
+    for position in positions:
+        if is_equity_position(position):
+            continue
+        qty = position_qty(position)
+        parsed = parse_occ(str(position.get("symbol", "")))
+        if qty < 0 and parsed and parsed[1] == "put":
+            total += parsed[2] * contract_size * abs(qty)
+    return total
 
 
 # =============================================================================
@@ -1084,7 +1178,7 @@ class AlpacaClient:
                 f"{limit_price:.2f}"
             )
 
-        if not CONFIG.live_trading:
+        if not orders_enabled(CONFIG):
             LOGGER.warning(
                 "DRY RUN equity order: %s",
                 payload,
@@ -1120,10 +1214,11 @@ class AlpacaClient:
 
         while True:
             params: Dict[str, Any] = {
+                # No "tradable" filter: Alpaca now rejects it (422 "invalid
+                # path"). select_option() skips untradable contracts itself.
                 "underlying_symbols": underlying,
                 "type": option_type,
                 "status": "active",
-                "tradable": "true",
                 "expiration_date_gte": (
                     min_expiration.isoformat()
                 ),
@@ -1238,7 +1333,7 @@ class AlpacaClient:
             "client_order_id": client_order_id,
         }
 
-        if not CONFIG.live_trading:
+        if not orders_enabled(CONFIG):
             LOGGER.warning(
                 "DRY RUN option order: %s",
                 payload,
@@ -1281,156 +1376,8 @@ class AlpacaClient:
 # TECHNICAL INDICATORS
 # =============================================================================
 
-def ema(values: List[float], period: int) -> List[float]:
-    if len(values) < period:
-        return []
-
-    alpha = 2.0 / (period + 1.0)
-
-    result = [
-        sum(values[:period]) / period
-    ]
-
-    for value in values[period:]:
-        result.append(
-            (value * alpha)
-            + (
-                result[-1]
-                * (1.0 - alpha)
-            )
-        )
-
-    # Pad to same length.
-    return (
-        [math.nan] * (period - 1)
-    ) + result
-
-
-def atr(
-    highs: List[float],
-    lows: List[float],
-    closes: List[float],
-    period: int,
-) -> List[float]:
-
-    if len(closes) < period + 1:
-        return []
-
-    true_ranges = []
-
-    for i in range(1, len(closes)):
-        high = highs[i]
-        low = lows[i]
-        prev_close = closes[i - 1]
-
-        tr = max(
-            high - low,
-            abs(high - prev_close),
-            abs(low - prev_close),
-        )
-
-        true_ranges.append(tr)
-
-    result = []
-
-    first = sum(
-        true_ranges[:period]
-    ) / period
-
-    result.append(first)
-
-    for tr in true_ranges[period:]:
-        result.append(
-            (
-                result[-1] * (period - 1)
-                + tr
-            ) / period
-        )
-
-    # Align with original bar count.
-    return (
-        [math.nan] * (
-            len(closes) - len(result)
-        )
-    ) + result
-
-
-def adx(
-    highs: List[float],
-    lows: List[float],
-    closes: List[float],
-    period: int,
-) -> List[float]:
-    """
-    Average Directional Index - measures trend *strength* (not direction).
-
-    Rationale (Issue #1): an EMA crossover fires on noise as readily as on
-    a real trend. ADX is used as a regime filter: crossovers are only
-    acted on when ADX confirms the market is actually trending, which
-    materially reduces whipsaw entries in choppy/range-bound conditions.
-    """
-
-    n = len(closes)
-    if n < period * 2 + 1:
-        return []
-
-    plus_dm = [0.0] * n
-    minus_dm = [0.0] * n
-    tr = [0.0] * n
-
-    for i in range(1, n):
-        up_move = highs[i] - highs[i - 1]
-        down_move = lows[i - 1] - lows[i]
-
-        plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
-        minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0.0
-
-        tr[i] = max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1]),
-        )
-
-    def wilder_smooth(values: List[float]) -> List[float]:
-        smoothed = [0.0] * n
-        first = sum(values[1:period + 1])
-        smoothed[period] = first
-        for i in range(period + 1, n):
-            smoothed[i] = smoothed[i - 1] - (smoothed[i - 1] / period) + values[i]
-        return smoothed
-
-    tr_smooth = wilder_smooth(tr)
-    plus_dm_smooth = wilder_smooth(plus_dm)
-    minus_dm_smooth = wilder_smooth(minus_dm)
-
-    dx = [math.nan] * n
-    for i in range(period, n):
-        if tr_smooth[i] <= 0:
-            continue
-        plus_di = 100.0 * (plus_dm_smooth[i] / tr_smooth[i])
-        minus_di = 100.0 * (minus_dm_smooth[i] / tr_smooth[i])
-        denom = plus_di + minus_di
-        if denom <= 0:
-            dx[i] = 0.0
-            continue
-        dx[i] = 100.0 * (abs(plus_di - minus_di) / denom)
-
-    valid_dx = [v for v in dx[period:period * 2] if not math.isnan(v)]
-    if len(valid_dx) < period:
-        return [math.nan] * n
-
-    result = [math.nan] * n
-    adx_val = sum(valid_dx) / period
-    result[period * 2 - 1] = adx_val
-
-    for i in range(period * 2, n):
-        if math.isnan(dx[i]):
-            result[i] = result[i - 1]
-            continue
-        adx_val = ((adx_val * (period - 1)) + dx[i]) / period
-        result[i] = adx_val
-
-    return result
+# ema/atr/adx now live in ndhd/indicators.py (imported at the top and
+# re-exported from here).
 
 
 # =============================================================================
@@ -1799,14 +1746,7 @@ class RiskEngine:
         count = 0
 
         for position in positions:
-            symbol = position.get(
-                "symbol",
-                "",
-            )
-
-            # crude distinction: standard stock symbols are short;
-            # option symbols contain expiry / strike structure.
-            if len(symbol) > 10:
+            if not is_equity_position(position):
                 continue
 
             qty = position_qty(
@@ -1855,12 +1795,12 @@ class RiskEngine:
             )
             return False
 
-        current_exposure = (
-            self.stock_exposure(
-                positions,
-                excluded=stock_strategy_symbols - {symbol},
-            )
-        )
+        # Every equity position counts toward the total, the strategy's
+        # own included. (This used to exclude the other strategy symbols,
+        # which left the engine's own positions out of its own cap.)
+        # stock_strategy_symbols is kept for callers; it no longer
+        # changes the total.
+        current_exposure = self.stock_exposure(positions)
 
         max_total = (
             equity
@@ -1967,7 +1907,11 @@ class RiskEngine:
         self,
         account: Dict[str, Any],
         collateral: float,
+        positions: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
+        """`positions` enables the total cap across open short puts
+        (WHEEL_MAX_TOTAL_COLLATERAL_PCT). Without it only the per-trade
+        cap applies, so every caller should pass them."""
 
         if self.daily_risk_halted(
             account
@@ -2006,6 +1950,25 @@ class RiskEngine:
                 max_collateral,
             )
             return False
+
+        if positions is not None:
+            in_use = short_put_collateral(
+                positions, self.config.wheel_contract_size
+            )
+            max_total = (
+                equity
+                * self.config.wheel_max_total_collateral_pct
+                / 100.0
+            )
+            if in_use + collateral > max_total:
+                LOGGER.info(
+                    "Wheel rejected: total put collateral %.2f + %.2f "
+                    "> max %.2f",
+                    in_use,
+                    collateral,
+                    max_total,
+                )
+                return False
 
         return True
 
@@ -2414,98 +2377,32 @@ class StockStrategy:
             for x in bars
         ]
 
-        fast = ema(
-            closes,
-            self.config.ema_fast,
-        )
-        slow = ema(
-            closes,
-            self.config.ema_slow,
-        )
-        atr_values = atr(
-            highs,
-            lows,
-            closes,
-            self.config.atr_period,
-        )
-
-        adx_values = adx(
-            highs,
-            lows,
-            closes,
-            self.config.adx_period,
-        )
-
-        fast_now = fast[-1]
-        slow_now = slow[-1]
-        fast_prev = fast[-2]
-        slow_prev = slow[-2]
-        atr_now = atr_values[-1]
-        adx_now = adx_values[-1] if adx_values else math.nan
-
-        if any(
-            math.isnan(x)
-            for x in (
-                fast_now,
-                slow_now,
-                fast_prev,
-                slow_prev,
-                atr_now,
+        # The decision itself (crossover + ADX regime filter, Issue #1) is
+        # a pure function in ndhd.rules.
+        try:
+            sig = rules.stock_signal(
+                closes,
+                highs,
+                lows,
+                ema_fast=self.config.ema_fast,
+                ema_slow=self.config.ema_slow,
+                atr_period=self.config.atr_period,
+                adx_period=self.config.adx_period,
+                adx_min_strength=self.config.adx_min_strength,
             )
-        ):
+        except ValueError as exc:
             raise RuntimeError(
-                f"Indicators unavailable for {symbol}."
-            )
+                f"Indicators unavailable for {symbol}: {exc}"
+            ) from exc
 
-        long_cross = (
-            fast_prev <= slow_prev
-            and fast_now > slow_now
-        )
-
-        short_cross = (
-            fast_prev >= slow_prev
-            and fast_now < slow_now
-        )
-
-        # ---------------------------------------------------------------
-        # Regime filter (Issue #1): an EMA crossover in a low-ADX / choppy
-        # market is exactly the condition that produces whipsaw losses.
-        # Require ADX to confirm the market is actually trending before
-        # acting on the crossover. If ADX is unavailable (insufficient
-        # history), fail safe by treating the trend as unconfirmed.
-        # ---------------------------------------------------------------
-
-        trending = (
-            not math.isnan(adx_now)
-            and adx_now >= self.config.adx_min_strength
-        )
-
-        if (
-            long_cross
-            and closes[-1] > slow_now
-            and trending
-        ):
-            signal = "LONG"
-
-        elif (
-            short_cross
-            and closes[-1] < slow_now
-            and trending
-        ):
-            signal = "SHORT"
-
-        elif (long_cross or short_cross) and not trending:
+        if sig.crossover_ignored:
             LOGGER.info(
                 "%s crossover ignored: ADX=%.1f below "
                 "min strength %.1f (regime filter).",
                 symbol,
-                0.0 if math.isnan(adx_now) else adx_now,
+                sig.adx or 0.0,
                 self.config.adx_min_strength,
             )
-            signal = "NONE"
-
-        else:
-            signal = "NONE"
 
         # Purely informational, additive stash of the fuller diagnostic
         # picture (fast EMA / ADX / trend confirmation) for observability
@@ -2514,17 +2411,17 @@ class StockStrategy:
         # and changing that shape would ripple into process_symbol()/
         # manage_existing() for no trading-behavior benefit.
         self.last_diagnostics: Dict[str, Any] = {
-            "ema_fast": fast_now,
-            "ema_slow": slow_now,
-            "adx": None if math.isnan(adx_now) else adx_now,
-            "trending": trending,
+            "ema_fast": sig.ema_fast,
+            "ema_slow": sig.ema_slow,
+            "adx": sig.adx,
+            "trending": sig.trending,
         }
 
         return (
-            closes[-1],
-            atr_now,
-            slow_now,
-            signal,
+            sig.close,
+            sig.atr,
+            sig.ema_slow,
+            sig.signal,
         )
 
     def open_position(
@@ -2619,43 +2516,12 @@ class StockStrategy:
         # This is intentionally conservative.
         # ---------------------------------------------------------------------
 
-        equity = as_float(
-            account.get("equity")
-        )
-
-        risk_budget = (
-            equity * 0.01
-        )
-
-        stop_distance = (
-            atr_value
-            * self.config.initial_stop_atr
-        )
-
-        if stop_distance <= 0:
-            return
-
-        qty_by_risk = math.floor(
-            risk_budget
-            / stop_distance
-        )
-
-        if qty_by_risk <= 0:
-            return
-
-        max_notional = (
-            equity
-            * self.config.max_single_position_pct
-            / 100.0
-        )
-
-        qty_by_notional = math.floor(
-            max_notional / price
-        )
-
-        qty = min(
-            qty_by_risk,
-            qty_by_notional,
+        qty = rules.position_size(
+            equity=as_float(account.get("equity")),
+            price=price,
+            atr_value=atr_value,
+            stop_atr=self.config.initial_stop_atr,
+            max_single_position_pct=self.config.max_single_position_pct,
         )
 
         if qty <= 0:
@@ -2708,15 +2574,17 @@ class StockStrategy:
             # the worst-case slippage on a fast-moving or thin quote.
             # ---------------------------------------------------------------
 
+            # Price the limit off the live quote, not the daily bar's close
+            # (which can lag the market).
             bid_ask_mid, _ = self.market_price(symbol)
             slippage = (
                 self.config.entry_limit_slippage_bps / 10_000.0
             )
 
             if side == "buy":
-                limit_price = round_cent(price * (1.0 + slippage))
+                limit_price = round_cent(bid_ask_mid * (1.0 + slippage))
             else:
-                limit_price = round_cent(price * (1.0 - slippage))
+                limit_price = round_cent(bid_ask_mid * (1.0 - slippage))
 
             order = self.api.submit_equity_order(
                 symbol=symbol,
@@ -2742,19 +2610,32 @@ class StockStrategy:
         )
 
         if order.get("status") == "dry_run":
-
-            entry_price = price
-
-        else:
-            filled = self.wait_fill(
-                state.entry_order_id
+            # Nothing was sent, so nothing is open: log the intent and go
+            # back to IDLE. (Recording a pretend fill here used to leave the
+            # symbol looking open with a pretend stop.)
+            LOGGER.warning(
+                "DRY RUN: would open %s %s qty=%d near %.2f",
+                symbol,
+                signal,
+                qty,
+                price,
             )
+            state.status = "IDLE"
+            state.entry_order_id = None
+            self.store.save(self.state)
+            return
 
-            entry_price = as_float(
-                filled.get(
-                    "filled_avg_price"
-                )
+        filled = self.wait_fill(
+            state.entry_order_id
+        )
+
+        entry_price = as_float(
+            filled.get(
+                "filled_avg_price"
             )
+        )
+        # A partial fill that was then cancelled leaves fewer shares.
+        qty = as_int(filled.get("filled_qty"), qty) or qty
 
         if entry_price <= 0:
             raise RuntimeError(
@@ -2763,28 +2644,13 @@ class StockStrategy:
 
         state.entry_price = entry_price
 
-        initial_distance = (
-            atr_value
-            * self.config.initial_stop_atr
+        initial_stop = rules.initial_stop(
+            "long" if signal == "LONG" else "short",
+            entry_price,
+            atr_value,
+            self.config.initial_stop_atr,
         )
-
-        if signal == "LONG":
-
-            initial_stop = (
-                entry_price
-                - initial_distance
-            )
-
-            exit_side = "sell"
-
-        else:
-
-            initial_stop = (
-                entry_price
-                + initial_distance
-            )
-
-            exit_side = "buy"
+        exit_side = "sell" if signal == "LONG" else "buy"
 
         state.initial_stop_price = (
             initial_stop
@@ -2814,43 +2680,12 @@ class StockStrategy:
         # alerts.
         # ---------------------------------------------------------------
 
-        stop_client_id = (
-            f"stock-stop-{symbol}-{uuid.uuid4().hex[:16]}"
+        stop_order = self.submit_stop(
+            symbol=symbol,
+            qty=qty,
+            exit_side=exit_side,
+            stop_price=initial_stop,
         )
-
-        buffer_frac = self.config.stop_limit_buffer_bps / 10_000.0
-        rounded_stop = round_cent(initial_stop)
-
-        if self.config.use_stop_limit:
-            if exit_side == "sell":
-                stop_limit_price = round_cent(
-                    rounded_stop * (1.0 - buffer_frac)
-                )
-            else:
-                stop_limit_price = round_cent(
-                    rounded_stop * (1.0 + buffer_frac)
-                )
-
-            stop_order = self.api.submit_equity_order(
-                symbol=symbol,
-                qty=qty,
-                side=exit_side,
-                order_type="stop_limit",
-                client_order_id=stop_client_id,
-                stop_price=rounded_stop,
-                limit_price=stop_limit_price,
-                time_in_force="gtc",
-            )
-        else:
-            stop_order = self.api.submit_equity_order(
-                symbol=symbol,
-                qty=qty,
-                side=exit_side,
-                order_type="stop",
-                client_order_id=stop_client_id,
-                stop_price=rounded_stop,
-                time_in_force="gtc",
-            )
 
         state.stop_order_id = (
             str(stop_order["id"])
@@ -2911,9 +2746,19 @@ class StockStrategy:
 
             time.sleep(2)
 
+        # Cancel rather than leave it working: an entry that fills later,
+        # unseen, would be a position with no protective stop. (If it
+        # partly filled, manage_existing() puts a stop on what's there.)
+        try:
+            self.api.cancel_order(order_id)
+        except Exception as exc:
+            LOGGER.warning(
+                "Could not cancel unfilled entry %s: %s", order_id, exc
+            )
+
         raise RuntimeError(
             f"Order {order_id} "
-            "fill timeout."
+            "fill timeout; cancelled."
         )
 
     def manage_existing(
@@ -2990,60 +2835,27 @@ class StockStrategy:
 
         direction = state.direction
 
-        if direction == "long":
+        # Every strategy position must have a working stop. One can be
+        # missing after a crash between fill and stop, an entry that
+        # filled after its timeout, or a stop that was cancelled/expired.
+        self.ensure_stop(
+            symbol=symbol,
+            state=state,
+            qty=abs(qty),
+            atr_value=atr_value,
+        )
 
-            profit_pct = (
-                (
-                    current_price
-                    - state.entry_price
-                )
-                / state.entry_price
-            ) * 100.0
+        move = (current_price - state.entry_price) / state.entry_price * 100.0
+        profit_pct = move if direction == "long" else -move
 
-            candidate_stop = (
-                current_price
-                - atr_value
-                * self.config.trail_atr
-            )
-
-            # Never loosen the stop.
-            old_stop = (
-                state.trailing_stop_price
-                or state.initial_stop_price
-                or 0
-            )
-
-            tightened_stop = max(
-                old_stop,
-                candidate_stop,
-            )
-
-        else:
-
-            profit_pct = (
-                (
-                    state.entry_price
-                    - current_price
-                )
-                / state.entry_price
-            ) * 100.0
-
-            candidate_stop = (
-                current_price
-                + atr_value
-                * self.config.trail_atr
-            )
-
-            old_stop = (
-                state.trailing_stop_price
-                or state.initial_stop_price
-                or float("inf")
-            )
-
-            tightened_stop = min(
-                old_stop,
-                candidate_stop,
-            )
+        # Never loosens: see rules.trailing_stop.
+        tightened_stop = rules.trailing_stop(
+            direction,
+            current_price,
+            atr_value,
+            self.config.trail_atr,
+            state.trailing_stop_price or state.initial_stop_price,
+        )
 
         # ---------------------------------------------------------------------
         # Activate dynamic trailing stop after profitability threshold.
@@ -3089,19 +2901,108 @@ class StockStrategy:
             self.state
         )
 
+    def submit_stop(
+        self,
+        *,
+        symbol: str,
+        qty: int,
+        exit_side: str,
+        stop_price: float,
+    ) -> Dict[str, Any]:
+        """Protective GTC stop (stop-limit when USE_STOP_LIMIT)."""
+        stop_client_id = (
+            f"stock-stop-{symbol}-{uuid.uuid4().hex[:16]}"
+        )
+        rounded_stop = round_cent(stop_price)
+
+        if self.config.use_stop_limit:
+            buffer_frac = self.config.stop_limit_buffer_bps / 10_000.0
+            if exit_side == "sell":
+                stop_limit_price = round_cent(rounded_stop * (1.0 - buffer_frac))
+            else:
+                stop_limit_price = round_cent(rounded_stop * (1.0 + buffer_frac))
+            return self.api.submit_equity_order(
+                symbol=symbol,
+                qty=qty,
+                side=exit_side,
+                order_type="stop_limit",
+                client_order_id=stop_client_id,
+                stop_price=rounded_stop,
+                limit_price=stop_limit_price,
+                time_in_force="gtc",
+            )
+
+        return self.api.submit_equity_order(
+            symbol=symbol,
+            qty=qty,
+            side=exit_side,
+            order_type="stop",
+            client_order_id=stop_client_id,
+            stop_price=rounded_stop,
+            time_in_force="gtc",
+        )
+
+    def ensure_stop(
+        self,
+        *,
+        symbol: str,
+        state: StockState,
+        qty: int,
+        atr_value: float,
+    ) -> None:
+        """Places a stop if the position has no working one."""
+        working = {"new", "accepted", "pending_new", "held", "partially_filled"}
+
+        if state.stop_order_id and not state.stop_order_id.startswith("DRYRUN-"):
+            try:
+                status = str(
+                    self.api.get_order(state.stop_order_id).get("status", "")
+                ).lower()
+            except Exception as exc:
+                LOGGER.warning("%s: could not check stop order: %s", symbol, exc)
+                return  # unknown, not missing: don't risk a second stop
+            if status in working:
+                return
+
+        long = state.direction == "long"
+        stop_price = state.trailing_stop_price or state.initial_stop_price
+        if not stop_price:
+            stop_price = rules.initial_stop(
+                state.direction,
+                state.entry_price,
+                atr_value,
+                self.config.initial_stop_atr,
+            )
+            state.initial_stop_price = stop_price
+            state.trailing_stop_price = stop_price
+
+        order = self.submit_stop(
+            symbol=symbol,
+            qty=qty,
+            exit_side="sell" if long else "buy",
+            stop_price=stop_price,
+        )
+        state.stop_order_id = str(order["id"])
+        if state.status in ("IDLE", "ENTRY_PENDING", "ENTRY_SUBMITTING"):
+            state.status = "INITIAL_STOP_ACTIVE"
+        self.store.save(self.state)
+
+        ALERTER.send(
+            subject=f"Protective stop placed on {symbol}",
+            body=(
+                f"{symbol} had no working stop, so one was placed at "
+                f"{stop_price:.2f} for {qty} shares."
+            ),
+            key=f"stop-restored-{symbol}",
+        )
+
     @staticmethod
     def is_tighter(
         direction: str,
         new_stop: float,
         old_stop: Optional[float],
     ) -> bool:
-
-        if old_stop is None:
-            return True
-
-        if direction == "long":
-            return new_stop > old_stop + 0.009
-        return new_stop < old_stop - 0.009
+        return rules.is_tighter(direction, new_stop, old_stop)
 
     def replace_stop_order(
         self,
@@ -3229,6 +3130,22 @@ class StockStrategy:
             ):
                 return
 
+        # No position and no working entry, but the record says otherwise:
+        # the position was closed (stop hit, manual close). Reset it; this
+        # path used to be unreachable, leaving stale state behind.
+        if state.status != "IDLE":
+            stale_stop = state.stop_order_id
+            self.manage_existing(
+                positions,
+                symbol,
+            )
+            if stale_stop and not stale_stop.startswith("DRYRUN-"):
+                try:
+                    self.api.cancel_order(stale_stop)
+                except Exception:
+                    pass  # usually already filled or cancelled
+            return
+
         close_price, atr_value, slow_ema, signal = (
             self.indicators(symbol)
         )
@@ -3246,21 +3163,6 @@ class StockStrategy:
 # =============================================================================
 # WHEEL STRATEGY
 # =============================================================================
-
-@dataclass
-class OptionCandidate:
-    symbol: str
-    option_type: str
-    strike: float
-    expiration: date
-    dte: int
-    delta: float
-    bid: float
-    ask: float
-    midpoint: float
-    spread_pct: float
-    open_interest: int
-
 
 class WheelStrategy:
 
@@ -3370,168 +3272,40 @@ class WheelStrategy:
             )
         )
 
-        candidates: List[OptionCandidate] = []
-
-        for contract in contracts:
-
-            if not contract.get(
-                "tradable",
-                False,
-            ):
-                continue
-
-            contract_symbol = contract.get(
-                "symbol"
-            )
-
-            snapshot = snapshots.get(
-                contract_symbol
-            )
-
-            if not snapshot:
-                continue
-
-            try:
-                expiration = date.fromisoformat(
-                    contract[
-                        "expiration_date"
-                    ]
-                )
-            except Exception:
-                continue
-
-            contract_dte = (
-                expiration - today
-            ).days
-
-            if not (
-                self.config.wheel_min_dte
-                <= contract_dte
-                <= self.config.wheel_max_dte
-            ):
-                continue
-
-            strike = as_float(
-                contract.get(
-                    "strike_price"
-                )
-            )
-
-            if strike <= 0:
-                continue
-
-            if option_type == "put":
-                if strike >= underlying_price:
-                    continue
-            else:
-                if strike <= underlying_price:
-                    continue
-
-                if (
-                    minimum_strike is not None
-                    and strike <= minimum_strike
-                ):
-                    continue
-
-            greeks = (
-                snapshot.get(
-                    "greeks",
-                    {}
-                )
-                or {}
-            )
-
-            delta = as_float(
-                greeks.get("delta"),
-                default=math.nan,
-            )
-
-            if math.isnan(delta):
-                continue
-
-            quote = (
-                snapshot.get(
-                    "latestQuote",
-                    {}
-                )
-                or {}
-            )
-
-            bid = as_float(
-                quote.get("bp")
-            )
-            ask = as_float(
-                quote.get("ap")
-            )
-
-            if bid <= 0 or ask <= 0:
-                continue
-
-            midpoint = (
-                bid + ask
-            ) / 2.0
-
-            spread_pct = (
-                (ask - bid)
-                / midpoint
-            ) * 100.0
-
-            if bid < self.config.wheel_min_option_bid:
-                continue
-
+        candidates = [
+            candidate
+            for contract in contracts
             if (
-                spread_pct
-                > self.config.wheel_max_option_spread_pct
-            ):
-                continue
-
-            oi = as_int(
-                contract.get(
-                    "open_interest"
-                )
-            )
-
-            if oi < self.config.wheel_min_open_interest:
-                continue
-
-            candidates.append(
-                OptionCandidate(
-                    symbol=contract_symbol,
+                candidate := rules.evaluate_contract(
+                    contract,
+                    snapshots.get(contract.get("symbol")),
                     option_type=option_type,
-                    strike=strike,
-                    expiration=expiration,
-                    dte=contract_dte,
-                    delta=abs(delta),
-                    bid=bid,
-                    ask=ask,
-                    midpoint=midpoint,
-                    spread_pct=spread_pct,
-                    open_interest=oi,
+                    underlying_price=underlying_price,
+                    today=today,
+                    min_dte=self.config.wheel_min_dte,
+                    max_dte=self.config.wheel_max_dte,
+                    min_bid=self.config.wheel_min_option_bid,
+                    max_spread_pct=self.config.wheel_max_option_spread_pct,
+                    min_open_interest=self.config.wheel_min_open_interest,
+                    minimum_strike=minimum_strike,
                 )
             )
+        ]
 
-        if not candidates:
+        best = rules.choose_option(
+            candidates,
+            target_delta=self.config.wheel_target_delta,
+            min_dte=self.config.wheel_min_dte,
+            max_dte=self.config.wheel_max_dte,
+        )
+
+        if best is None:
             raise RuntimeError(
                 f"No suitable {option_type} "
                 f"contract found for {symbol}."
             )
 
-        target_dte = (
-            self.config.wheel_min_dte
-            + self.config.wheel_max_dte
-        ) / 2.0
-
-        return min(
-            candidates,
-            key=lambda c: (
-                abs(
-                    c.delta
-                    - self.config.wheel_target_delta
-                ),
-                abs(c.dte - target_dte),
-                c.spread_pct,
-            ),
-        )
+        return best
 
     def wait_fill(
         self,
@@ -3598,6 +3372,18 @@ class WheelStrategy:
         if state.option_symbol:
             return
 
+        if (
+            state.cooldown_until
+            and date_today().isoformat() < state.cooldown_until
+        ):
+            LOGGER.info(
+                "CSP skipped for %s: cooling down after a loss stop "
+                "until %s.",
+                symbol,
+                state.cooldown_until,
+            )
+            return
+
         if self.earnings.is_blackout(
             symbol
         ):
@@ -3625,6 +3411,7 @@ class WheelStrategy:
         if not self.risk.allow_wheel_entry(
             account,
             collateral,
+            positions=self.api.get_positions(),
         ):
             return
 
@@ -3649,24 +3436,31 @@ class WheelStrategy:
         )
 
         if order.get("status") == "dry_run":
-
-            avg = limit_price
-
-        else:
-
-            filled = self.wait_fill(
-                order_id
-            )
-
-            if not filled:
-                return
-
-            avg = as_float(
-                filled.get(
-                    "filled_avg_price"
-                ),
+            # Nothing was sent: log it, record nothing as open.
+            LOGGER.warning(
+                "DRY RUN: would sell put %s strike=%.2f DTE=%d "
+                "delta=%.3f at %.2f",
+                candidate.symbol,
+                candidate.strike,
+                candidate.dte,
+                candidate.delta,
                 limit_price,
             )
+            return
+
+        filled = self.wait_fill(
+            order_id
+        )
+
+        if not filled:
+            return
+
+        avg = as_float(
+            filled.get(
+                "filled_avg_price"
+            ),
+            limit_price,
+        )
 
         state.option_symbol = (
             candidate.symbol
@@ -3788,24 +3582,31 @@ class WheelStrategy:
         )
 
         if order.get("status") == "dry_run":
-
-            avg = limit_price
-
-        else:
-
-            filled = self.wait_fill(
-                order_id
-            )
-
-            if not filled:
-                return
-
-            avg = as_float(
-                filled.get(
-                    "filled_avg_price"
-                ),
+            LOGGER.warning(
+                "DRY RUN: would sell call %s strike=%.2f basis=%.2f "
+                "DTE=%d delta=%.3f at %.2f",
+                candidate.symbol,
+                candidate.strike,
+                state.assignment_basis,
+                candidate.dte,
+                candidate.delta,
                 limit_price,
             )
+            return
+
+        filled = self.wait_fill(
+            order_id
+        )
+
+        if not filled:
+            return
+
+        avg = as_float(
+            filled.get(
+                "filled_avg_price"
+            ),
+            limit_price,
+        )
 
         state.option_symbol = (
             candidate.symbol
@@ -3890,12 +3691,18 @@ class WheelStrategy:
         if not state.option_symbol or state.entry_premium is None:
             return
 
+        # Puts only. A covered call's loss is matched by the gain on the
+        # shares it covers, and being called away is the plan; buying it
+        # back on a rally would lock in that loss and keep re-selling.
+        if state.option_type != "put":
+            return
+
         position = find_position(positions, state.option_symbol)
         if not position:
             return
 
         snapshot = self.option_snapshot(
-            symbol, state.option_type or "put"
+            symbol, state.option_type
         )
         if not snapshot:
             return
@@ -3906,8 +3713,8 @@ class WheelStrategy:
         if ask <= 0:
             return
 
-        max_loss_debit = state.entry_premium * (
-            1.0 + self.config.wheel_max_loss_pct / 100.0
+        max_loss_debit = rules.max_loss_price(
+            state.entry_premium, self.config.wheel_max_loss_pct
         )
 
         if ask < max_loss_debit:
@@ -3972,6 +3779,10 @@ class WheelStrategy:
         state.option_type = None
         state.entry_premium = None
         state.last_order_id = str(order.get("id", ""))
+        state.cooldown_until = (
+            date_today()
+            + timedelta(days=self.config.wheel_stop_cooldown_days)
+        ).isoformat()
 
         self.store.save(self.state)
 
@@ -4026,12 +3837,8 @@ class WheelStrategy:
         if bid <= 0 or ask <= 0:
             return
 
-        target_debit = (
-            state.entry_premium
-            * (
-                1.0
-                - self.config.wheel_profit_target_pct
-            )
+        target_debit = rules.profit_target_price(
+            state.entry_premium, self.config.wheel_profit_target_pct
         )
 
         if ask > target_debit:
@@ -4464,6 +4271,26 @@ class PortfolioEngine:
                 "Live trading requires explicit opt-in."
             )
 
+        if self.config.paper_orders and not self.config.paper:
+            raise RuntimeError(
+                "PAPER_ORDERS=true only works with ALPACA_PAPER=true; it "
+                "never sends orders to a real-money account."
+            )
+
+        overlap = set(self.config.stock_tickers) & set(self.config.wheel_tickers)
+        if overlap:
+            raise ValueError(
+                f"{sorted(overlap)} in both STOCK_TICKERS and WHEEL_TICKERS. "
+                "The stock strategy would treat assigned Wheel shares as its "
+                "own position (stops, trims); list each ticker in one only."
+            )
+
+        if self.config.wheel_max_total_collateral_pct < self.config.wheel_max_collateral_pct:
+            raise ValueError(
+                "WHEEL_MAX_TOTAL_COLLATERAL_PCT must be >= "
+                "WHEEL_MAX_COLLATERAL_PCT."
+            )
+
         if (
             self.config.ema_fast
             >= self.config.ema_slow
@@ -4603,6 +4430,8 @@ class PortfolioEngine:
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "paper": self.config.paper,
             "live_trading": self.config.live_trading,
+            "paper_orders": self.config.paper_orders,
+            "orders_enabled": orders_enabled(self.config),
             "poll_seconds": self.config.poll_seconds,
             "congress_context_enabled": self.config.congress_context_enabled,
             "congress_reader_loaded": self.congress is not None,
@@ -4678,6 +4507,11 @@ class PortfolioEngine:
 
         if not halted:
             for symbol in self.config.stock_tickers:
+                # A kill switch pressed in the dashboard mid-cycle stops
+                # new work at the next symbol, not the next cycle.
+                if self.risk.kill_switch_active():
+                    halted = True
+                    break
                 try:
                     self.stock.process_symbol(
                         account,
@@ -4697,6 +4531,9 @@ class PortfolioEngine:
 
         if not halted:
             for symbol in self.config.wheel_tickers:
+                if self.risk.kill_switch_active():
+                    halted = True
+                    break
                 try:
                     self.wheel.process_symbol(
                         account,
@@ -4723,9 +4560,17 @@ class PortfolioEngine:
         )
 
         LOGGER.info(
-            "Paper=%s LiveTrading=%s",
+            "Paper=%s LiveTrading=%s PaperOrders=%s -> %s",
             self.config.paper,
             self.config.live_trading,
+            self.config.paper_orders,
+            (
+                "orders go to the PAPER account"
+                if orders_enabled(self.config) and self.config.paper
+                else "orders go to the LIVE account"
+                if orders_enabled(self.config)
+                else "dry run: no orders are sent"
+            ),
         )
 
         LOGGER.info(

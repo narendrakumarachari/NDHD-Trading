@@ -17,6 +17,7 @@ Implement changes to this repository's trading engines correctly, idempotently, 
 Two independent runtimes — do not conflate them, and do not silently implement a feature in only one without saying so:
 
 - `portfolio_engine.py` — the primary, integrated engine (~4,500 lines). Owns multi-symbol stock signals, multi-symbol Wheel logic, portfolio-level risk (`RiskEngine`), persistence (`StateStore`), reconciliation, alerting (`EmailAlerter`), and the poll loop (`PortfolioEngine.run_forever`).
+- `ndhd/` — the strategies' decisions as pure functions (step 1 of the 2026-10-18 architecture plan): `ndhd/indicators.py` (ema/atr/adx, re-exported by the engine) and `ndhd/rules.py` (stock signal, position size, initial/trailing stops, option contract checks and choice, Wheel exit prices). No broker calls, state, logging or clock. `portfolio_engine.py` fetches data, applies `RiskEngine`, places orders and calls these. Put new decision logic here, with tests in `tests/test_rules.py`. Next steps of the plan: run the loop inside the dashboard service as one background worker with state in SQLite, then retire `alpaca_wheel_strategy.py`.
 - `alpaca_wheel_strategy.py` — a standalone, single-ticker Wheel engine (~2,600 lines) with its own `Config`, `AlpacaClient`, `WheelState`, `StateStore`, and `WheelStrategy`. It has no stock strategy and no PDT-related code.
 
 Both persist to a `STATE_FILE`-configured JSON path, but the schemas are **not** interchangeable — confirm which runtime a given state file belongs to before pointing both at the same path.
@@ -78,7 +79,7 @@ For any stateful feature, define: valid states and transitions, the broker facts
 4. Submit with explicit side, quantity, order type, and time-in-force; check `get_order_by_client_id()` before resubmitting after a crash instead of blindly retrying.
 5. Reconcile fills — `wait_fill()` polls order status; never treat submission as a fill.
 6. Persist the observed result, then advance strategy state.
-7. In dry-run (`LIVE_TRADING=false`), report the synthetic `DRYRUN-` result without mutating state as if a real fill occurred.
+7. In dry-run (`orders_enabled(config)` false: neither `LIVE_TRADING=true` nor `PAPER_ORDERS=true` on a paper account), report the synthetic `DRYRUN-` result without mutating state as if a real fill occurred. `PAPER_ORDERS` only ever reaches the paper account; real money still needs `LIVE_TRADING`.
 
 ### 4. Test for this codebase's actual failure modes
 

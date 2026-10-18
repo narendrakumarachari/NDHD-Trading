@@ -183,6 +183,9 @@ ALPACA_SECRET_KEY=your_paper_secret_key
 
 ALPACA_PAPER=true
 LIVE_TRADING=false
+PAPER_ORDERS=false   # true = send orders to the paper account (simulated money); ignored unless ALPACA_PAPER=true
+
+OPTION_FEED=indicative   # free; "opra" needs a signed OPRA agreement / paid plan
 
 STOCK_TICKERS=AAPL,MSFT,NVDA
 STOCK_DIRECTION=long
@@ -210,7 +213,10 @@ WHEEL_PROFIT_TARGET_PCT=0.50
 WHEEL_MIN_OPEN_INTEREST=500
 WHEEL_MAX_OPTION_SPREAD_PCT=8
 WHEEL_MIN_OPTION_BID=0.10
-WHEEL_MAX_COLLATERAL_PCT=25
+WHEEL_MAX_COLLATERAL_PCT=25          # one put
+WHEEL_MAX_TOTAL_COLLATERAL_PCT=50    # all open puts together
+WHEEL_MAX_LOSS_PCT=200               # buy a put back when the loss is 200% of the premium (cost to close = 3x credit); calls are never stopped
+WHEEL_STOP_COOLDOWN_DAYS=5           # no new put on that ticker for 5 days after a loss stop
 WHEEL_EARNINGS_BLACKOUT_DAYS=7
 
 EARNINGS_FILTER=true

@@ -56,7 +56,11 @@ if (-not $envState.env_file) { throw "No .env file. Create it first: docs\RUNNIN
 if ($envState.live_trading -or -not $envState.paper) {
     throw "Stopped: .env is not set for paper trading (ALPACA_PAPER=true, LIVE_TRADING=false). This script only starts paper trading."
 }
-Say "Safety check: paper trading on, live trading off." Green
+if ($envState.paper_orders) {
+    Say "Safety check: paper account only, live trading off. PAPER_ORDERS=true: orders go to the Alpaca paper account (simulated money)." Green
+} else {
+    Say "Safety check: paper account only, live trading off. Dry run: orders are only logged." Green
+}
 
 function Test-Listening { [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) }
 function Get-Engine {
@@ -137,7 +141,11 @@ if ($NoEngine) {
 } else {
     $cmd = "`$host.UI.RawUI.WindowTitle = 'NDHD engine'; & '$python' portfolio_engine.py"
     Start-Process powershell -ArgumentList '-NoExit', '-Command', $cmd -WorkingDirectory $root -WindowStyle Minimized
-    Say "Engine: started in paper mode. LIVE_TRADING=false, so it only logs the orders it would place; nothing is sent, not even to the paper account." Green
+    if ($envState.paper_orders) {
+        Say "Engine: started. While the market is open it places orders in the Alpaca paper account on its own." Green
+    } else {
+        Say "Engine: started in dry run. It only logs the orders it would place; nothing is sent, not even to the paper account." Green
+    }
 }
 
 # --- 4. Private access from your laptop and phone (Tailscale Serve, tailnet only)

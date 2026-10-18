@@ -143,19 +143,12 @@ def trigger_kill_switch() -> KillSwitchResponse:
 # ---------------------------------------------------------------------------
 
 def _parse_occ_strike(symbol: str) -> Tuple[str, float]:
-    """Best-effort OCC option symbol parse: returns (option_type, strike).
-    Standard suffix is fixed-width: YYMMDD(6) + C/P(1) + strike*1000(8),
-    regardless of root symbol length. Raises ValueError if it doesn't
-    look like that shape."""
-    if len(symbol) < 15:
-        raise ValueError(f"'{symbol}' is too short to be an OCC option symbol.")
-    opt_type_char = symbol[-9]
-    strike_digits = symbol[-8:]
-    if opt_type_char not in ("C", "P") or not strike_digits.isdigit():
+    """(option_type, strike) via engine.parse_occ; ValueError if the symbol
+    isn't OCC-shaped (root + YYMMDD + C/P + strike*1000)."""
+    parsed = engine.parse_occ(symbol)
+    if not parsed:
         raise ValueError(f"'{symbol}' does not match the OCC option symbol shape.")
-    option_type = "call" if opt_type_char == "C" else "put"
-    strike = int(strike_digits) / 1000.0
-    return option_type, strike
+    return parsed[1], parsed[2]
 
 
 @router.post("/orders", response_model=ManualOrderResponse)
@@ -253,12 +246,13 @@ def submit_manual_order(req: ManualOrderRequest) -> ManualOrderResponse:
                 option_type, strike = _parse_occ_strike(req.symbol)
                 if option_type == "put":
                     collateral = strike * engine.CONFIG.wheel_contract_size * req.qty
-                    risk_check_passed = risk.allow_wheel_entry(account, collateral)
+                    risk_check_passed = risk.allow_wheel_entry(account, collateral, positions=positions)
                     if not risk_check_passed:
                         return ManualOrderResponse(
                             accepted=False,
                             reason="Rejected by RiskEngine.allow_wheel_entry "
-                            "(collateral exceeds cash or WHEEL_MAX_COLLATERAL_PCT).",
+                            "(collateral exceeds cash, WHEEL_MAX_COLLATERAL_PCT "
+                            "or WHEEL_MAX_TOTAL_COLLATERAL_PCT).",
                             risk_check_passed=False,
                         )
                 else:

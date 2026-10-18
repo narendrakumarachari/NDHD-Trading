@@ -17,6 +17,7 @@ export interface Account {
   account_blocked: boolean;
   paper: boolean;
   live_trading: boolean;
+  orders_enabled: boolean;
   pdt_fields_present: boolean;
   daytrade_count: number | null;
 }
