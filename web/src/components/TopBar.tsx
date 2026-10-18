@@ -20,7 +20,12 @@ export function TopBar({ account, connected, congress, onOpenSettings, onOpenKil
       </div>
 
       {account && (
-        <span className={`badge ${account.paper ? "paper" : "live"}`}>{account.paper ? "PAPER" : "LIVE TRADING"}</span>
+        <span
+          className={`badge ${account.paper ? "paper" : "live"}`}
+          title={account.orders_enabled ? "Orders are sent to the broker" : "Dry run: orders are only logged, nothing is sent"}
+        >
+          {account.paper ? (account.orders_enabled ? "PAPER · orders on" : "PAPER · dry run") : "LIVE TRADING"}
+        </span>
       )}
 
       <span className="badge">

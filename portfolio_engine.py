@@ -143,9 +143,15 @@ class Config:
     # Alpaca
     paper: bool = env_bool("ALPACA_PAPER", True)
     live_trading: bool = env_bool("LIVE_TRADING", False)
+    # Sends orders to the Alpaca *paper* account (simulated money) without
+    # LIVE_TRADING. It has no effect unless ALPACA_PAPER=true, so it can
+    # never reach a real-money account. See orders_enabled().
+    paper_orders: bool = env_bool("PAPER_ORDERS", False)
 
     stock_feed: str = os.getenv("STOCK_FEED", "iex")
-    option_feed: str = os.getenv("OPTION_FEED", "opra")
+    # "opra" needs a signed OPRA agreement / paid data plan (403 without
+    # one); "indicative" is Alpaca's free feed and includes greeks.
+    option_feed: str = os.getenv("OPTION_FEED", "indicative")
 
     # Stock strategy
     stock_tickers: List[str] = field(
@@ -222,6 +228,11 @@ class Config:
     wheel_max_collateral_pct: float = env_float(
         "WHEEL_MAX_COLLATERAL_PCT", 25.0
     )
+    # Cap on collateral across ALL open cash-secured puts; the setting
+    # above caps one trade only.
+    wheel_max_total_collateral_pct: float = env_float(
+        "WHEEL_MAX_TOTAL_COLLATERAL_PCT", 50.0
+    )
     wheel_contract_size: int = 100
 
     # Earnings
@@ -291,8 +302,11 @@ class Config:
     use_stop_limit: bool = env_bool("USE_STOP_LIMIT", True)
     stop_limit_buffer_bps: float = env_float("STOP_LIMIT_BUFFER_BPS", 25.0)
 
-    # Wheel downside protection (Issue #5)
-    wheel_max_loss_pct: float = env_float("WHEEL_MAX_LOSS_PCT", 15.0)
+    # Wheel downside protection (Issue #5): buy a short put back once the
+    # loss reaches this % of the premium received (200 = cost to close is
+    # 3x the credit). Was 15, which closed trades on ordinary noise.
+    wheel_max_loss_pct: float = env_float("WHEEL_MAX_LOSS_PCT", 200.0)
+    wheel_stop_cooldown_days: int = env_int("WHEEL_STOP_COOLDOWN_DAYS", 5)
 
     # Data-dependency health / alerting (Issue #6)
     earnings_failure_alert_threshold: int = env_int(
@@ -505,6 +519,10 @@ class WheelState:
 
     last_order_id: Optional[str] = None
 
+    # ISO date before which no new put is sold, set when the max-loss stop
+    # closes one (don't re-sell straight into a falling stock).
+    cooldown_until: Optional[str] = None
+
 
 @dataclass
 class PortfolioState:
@@ -568,8 +586,30 @@ class StateStore:
             ) from exc
 
     def save(self, state: PortfolioState) -> None:
+        # Two processes write this file: the engine (from its in-memory
+        # copy, loaded at startup) and the dashboard API (kill switch).
+        # Without this merge the engine's next save would put back its own
+        # older kill_switch_date (often None) and silently undo a kill
+        # switch pressed in the dashboard. A halt date may only move
+        # forward; nothing in the code ever clears one (the cooldown is
+        # date-based).
+        try:
+            if self.path.exists():
+                on_disk = json.loads(self.path.read_text()).get(
+                    "kill_switch_date"
+                )
+                if on_disk and (
+                    not state.kill_switch_date
+                    or on_disk > state.kill_switch_date
+                ):
+                    state.kill_switch_date = on_disk
+        except Exception as exc:
+            LOGGER.warning(
+                "Could not re-read kill switch date before saving: %s", exc
+            )
+
         tmp = self.path.with_suffix(
-            self.path.suffix + ".tmp"
+            self.path.suffix + f".{os.getpid()}.tmp"
         )
 
         tmp.write_text(
@@ -747,6 +787,54 @@ def parse_sector_map(raw: str) -> Dict[str, str]:
         if symbol and sector:
             mapping[symbol] = sector
     return mapping
+
+
+def orders_enabled(config: "Config") -> bool:
+    """
+    Whether order calls reach the broker (otherwise they are logged as
+    DRYRUN). Two independent ways in:
+      - LIVE_TRADING=true sends to whichever account ALPACA_PAPER selects;
+      - PAPER_ORDERS=true sends only while ALPACA_PAPER=true, i.e. to the
+        paper account. It can never enable a real-money account.
+    """
+    return bool(
+        config.live_trading
+        or (config.paper and config.paper_orders)
+    )
+
+
+def parse_occ(symbol: str) -> Optional[Tuple[str, str, float]]:
+    """
+    (underlying, "call"|"put", strike) from an OCC option symbol such as
+    IBM261120P00220000 (root + YYMMDD + C/P + strike*1000), or None if the
+    symbol doesn't have that shape.
+    """
+    if len(symbol) < 16:
+        return None
+    root, type_char, strike_digits = symbol[:-15], symbol[-9], symbol[-8:]
+    if not root or type_char not in ("C", "P") or not strike_digits.isdigit():
+        return None
+    return (
+        root,
+        "call" if type_char == "C" else "put",
+        int(strike_digits) / 1000.0,
+    )
+
+
+def short_put_collateral(
+    positions: Iterable[Dict[str, Any]],
+    contract_size: int = 100,
+) -> float:
+    """Cash securing every open short put: strike x 100 x contracts."""
+    total = 0.0
+    for position in positions:
+        if is_equity_position(position):
+            continue
+        qty = position_qty(position)
+        parsed = parse_occ(str(position.get("symbol", "")))
+        if qty < 0 and parsed and parsed[1] == "put":
+            total += parsed[2] * contract_size * abs(qty)
+    return total
 
 
 # =============================================================================
@@ -1084,7 +1172,7 @@ class AlpacaClient:
                 f"{limit_price:.2f}"
             )
 
-        if not CONFIG.live_trading:
+        if not orders_enabled(CONFIG):
             LOGGER.warning(
                 "DRY RUN equity order: %s",
                 payload,
@@ -1120,10 +1208,11 @@ class AlpacaClient:
 
         while True:
             params: Dict[str, Any] = {
+                # No "tradable" filter: Alpaca now rejects it (422 "invalid
+                # path"). select_option() skips untradable contracts itself.
                 "underlying_symbols": underlying,
                 "type": option_type,
                 "status": "active",
-                "tradable": "true",
                 "expiration_date_gte": (
                     min_expiration.isoformat()
                 ),
@@ -1238,7 +1327,7 @@ class AlpacaClient:
             "client_order_id": client_order_id,
         }
 
-        if not CONFIG.live_trading:
+        if not orders_enabled(CONFIG):
             LOGGER.warning(
                 "DRY RUN option order: %s",
                 payload,
@@ -1799,14 +1888,7 @@ class RiskEngine:
         count = 0
 
         for position in positions:
-            symbol = position.get(
-                "symbol",
-                "",
-            )
-
-            # crude distinction: standard stock symbols are short;
-            # option symbols contain expiry / strike structure.
-            if len(symbol) > 10:
+            if not is_equity_position(position):
                 continue
 
             qty = position_qty(
@@ -1855,12 +1937,12 @@ class RiskEngine:
             )
             return False
 
-        current_exposure = (
-            self.stock_exposure(
-                positions,
-                excluded=stock_strategy_symbols - {symbol},
-            )
-        )
+        # Every equity position counts toward the total, the strategy's
+        # own included. (This used to exclude the other strategy symbols,
+        # which left the engine's own positions out of its own cap.)
+        # stock_strategy_symbols is kept for callers; it no longer
+        # changes the total.
+        current_exposure = self.stock_exposure(positions)
 
         max_total = (
             equity
@@ -1967,7 +2049,11 @@ class RiskEngine:
         self,
         account: Dict[str, Any],
         collateral: float,
+        positions: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
+        """`positions` enables the total cap across open short puts
+        (WHEEL_MAX_TOTAL_COLLATERAL_PCT). Without it only the per-trade
+        cap applies, so every caller should pass them."""
 
         if self.daily_risk_halted(
             account
@@ -2006,6 +2092,25 @@ class RiskEngine:
                 max_collateral,
             )
             return False
+
+        if positions is not None:
+            in_use = short_put_collateral(
+                positions, self.config.wheel_contract_size
+            )
+            max_total = (
+                equity
+                * self.config.wheel_max_total_collateral_pct
+                / 100.0
+            )
+            if in_use + collateral > max_total:
+                LOGGER.info(
+                    "Wheel rejected: total put collateral %.2f + %.2f "
+                    "> max %.2f",
+                    in_use,
+                    collateral,
+                    max_total,
+                )
+                return False
 
         return True
 
@@ -2708,15 +2813,17 @@ class StockStrategy:
             # the worst-case slippage on a fast-moving or thin quote.
             # ---------------------------------------------------------------
 
+            # Price the limit off the live quote, not the daily bar's close
+            # (which can lag the market).
             bid_ask_mid, _ = self.market_price(symbol)
             slippage = (
                 self.config.entry_limit_slippage_bps / 10_000.0
             )
 
             if side == "buy":
-                limit_price = round_cent(price * (1.0 + slippage))
+                limit_price = round_cent(bid_ask_mid * (1.0 + slippage))
             else:
-                limit_price = round_cent(price * (1.0 - slippage))
+                limit_price = round_cent(bid_ask_mid * (1.0 - slippage))
 
             order = self.api.submit_equity_order(
                 symbol=symbol,
@@ -2742,19 +2849,32 @@ class StockStrategy:
         )
 
         if order.get("status") == "dry_run":
-
-            entry_price = price
-
-        else:
-            filled = self.wait_fill(
-                state.entry_order_id
+            # Nothing was sent, so nothing is open: log the intent and go
+            # back to IDLE. (Recording a pretend fill here used to leave the
+            # symbol looking open with a pretend stop.)
+            LOGGER.warning(
+                "DRY RUN: would open %s %s qty=%d near %.2f",
+                symbol,
+                signal,
+                qty,
+                price,
             )
+            state.status = "IDLE"
+            state.entry_order_id = None
+            self.store.save(self.state)
+            return
 
-            entry_price = as_float(
-                filled.get(
-                    "filled_avg_price"
-                )
+        filled = self.wait_fill(
+            state.entry_order_id
+        )
+
+        entry_price = as_float(
+            filled.get(
+                "filled_avg_price"
             )
+        )
+        # A partial fill that was then cancelled leaves fewer shares.
+        qty = as_int(filled.get("filled_qty"), qty) or qty
 
         if entry_price <= 0:
             raise RuntimeError(
@@ -2814,43 +2934,12 @@ class StockStrategy:
         # alerts.
         # ---------------------------------------------------------------
 
-        stop_client_id = (
-            f"stock-stop-{symbol}-{uuid.uuid4().hex[:16]}"
+        stop_order = self.submit_stop(
+            symbol=symbol,
+            qty=qty,
+            exit_side=exit_side,
+            stop_price=initial_stop,
         )
-
-        buffer_frac = self.config.stop_limit_buffer_bps / 10_000.0
-        rounded_stop = round_cent(initial_stop)
-
-        if self.config.use_stop_limit:
-            if exit_side == "sell":
-                stop_limit_price = round_cent(
-                    rounded_stop * (1.0 - buffer_frac)
-                )
-            else:
-                stop_limit_price = round_cent(
-                    rounded_stop * (1.0 + buffer_frac)
-                )
-
-            stop_order = self.api.submit_equity_order(
-                symbol=symbol,
-                qty=qty,
-                side=exit_side,
-                order_type="stop_limit",
-                client_order_id=stop_client_id,
-                stop_price=rounded_stop,
-                limit_price=stop_limit_price,
-                time_in_force="gtc",
-            )
-        else:
-            stop_order = self.api.submit_equity_order(
-                symbol=symbol,
-                qty=qty,
-                side=exit_side,
-                order_type="stop",
-                client_order_id=stop_client_id,
-                stop_price=rounded_stop,
-                time_in_force="gtc",
-            )
 
         state.stop_order_id = (
             str(stop_order["id"])
@@ -2911,9 +3000,19 @@ class StockStrategy:
 
             time.sleep(2)
 
+        # Cancel rather than leave it working: an entry that fills later,
+        # unseen, would be a position with no protective stop. (If it
+        # partly filled, manage_existing() puts a stop on what's there.)
+        try:
+            self.api.cancel_order(order_id)
+        except Exception as exc:
+            LOGGER.warning(
+                "Could not cancel unfilled entry %s: %s", order_id, exc
+            )
+
         raise RuntimeError(
             f"Order {order_id} "
-            "fill timeout."
+            "fill timeout; cancelled."
         )
 
     def manage_existing(
@@ -2989,6 +3088,16 @@ class StockStrategy:
             return
 
         direction = state.direction
+
+        # Every strategy position must have a working stop. One can be
+        # missing after a crash between fill and stop, an entry that
+        # filled after its timeout, or a stop that was cancelled/expired.
+        self.ensure_stop(
+            symbol=symbol,
+            state=state,
+            qty=abs(qty),
+            atr_value=atr_value,
+        )
 
         if direction == "long":
 
@@ -3087,6 +3196,100 @@ class StockStrategy:
 
         self.store.save(
             self.state
+        )
+
+    def submit_stop(
+        self,
+        *,
+        symbol: str,
+        qty: int,
+        exit_side: str,
+        stop_price: float,
+    ) -> Dict[str, Any]:
+        """Protective GTC stop (stop-limit when USE_STOP_LIMIT)."""
+        stop_client_id = (
+            f"stock-stop-{symbol}-{uuid.uuid4().hex[:16]}"
+        )
+        rounded_stop = round_cent(stop_price)
+
+        if self.config.use_stop_limit:
+            buffer_frac = self.config.stop_limit_buffer_bps / 10_000.0
+            if exit_side == "sell":
+                stop_limit_price = round_cent(rounded_stop * (1.0 - buffer_frac))
+            else:
+                stop_limit_price = round_cent(rounded_stop * (1.0 + buffer_frac))
+            return self.api.submit_equity_order(
+                symbol=symbol,
+                qty=qty,
+                side=exit_side,
+                order_type="stop_limit",
+                client_order_id=stop_client_id,
+                stop_price=rounded_stop,
+                limit_price=stop_limit_price,
+                time_in_force="gtc",
+            )
+
+        return self.api.submit_equity_order(
+            symbol=symbol,
+            qty=qty,
+            side=exit_side,
+            order_type="stop",
+            client_order_id=stop_client_id,
+            stop_price=rounded_stop,
+            time_in_force="gtc",
+        )
+
+    def ensure_stop(
+        self,
+        *,
+        symbol: str,
+        state: StockState,
+        qty: int,
+        atr_value: float,
+    ) -> None:
+        """Places a stop if the position has no working one."""
+        working = {"new", "accepted", "pending_new", "held", "partially_filled"}
+
+        if state.stop_order_id and not state.stop_order_id.startswith("DRYRUN-"):
+            try:
+                status = str(
+                    self.api.get_order(state.stop_order_id).get("status", "")
+                ).lower()
+            except Exception as exc:
+                LOGGER.warning("%s: could not check stop order: %s", symbol, exc)
+                return  # unknown, not missing: don't risk a second stop
+            if status in working:
+                return
+
+        long = state.direction == "long"
+        stop_price = state.trailing_stop_price or state.initial_stop_price
+        if not stop_price:
+            distance = atr_value * self.config.initial_stop_atr
+            stop_price = (
+                state.entry_price - distance if long
+                else state.entry_price + distance
+            )
+            state.initial_stop_price = stop_price
+            state.trailing_stop_price = stop_price
+
+        order = self.submit_stop(
+            symbol=symbol,
+            qty=qty,
+            exit_side="sell" if long else "buy",
+            stop_price=stop_price,
+        )
+        state.stop_order_id = str(order["id"])
+        if state.status in ("IDLE", "ENTRY_PENDING", "ENTRY_SUBMITTING"):
+            state.status = "INITIAL_STOP_ACTIVE"
+        self.store.save(self.state)
+
+        ALERTER.send(
+            subject=f"Protective stop placed on {symbol}",
+            body=(
+                f"{symbol} had no working stop, so one was placed at "
+                f"{stop_price:.2f} for {qty} shares."
+            ),
+            key=f"stop-restored-{symbol}",
         )
 
     @staticmethod
@@ -3228,6 +3431,22 @@ class StockStrategy:
                 .startswith("stock-entry-")
             ):
                 return
+
+        # No position and no working entry, but the record says otherwise:
+        # the position was closed (stop hit, manual close). Reset it; this
+        # path used to be unreachable, leaving stale state behind.
+        if state.status != "IDLE":
+            stale_stop = state.stop_order_id
+            self.manage_existing(
+                positions,
+                symbol,
+            )
+            if stale_stop and not stale_stop.startswith("DRYRUN-"):
+                try:
+                    self.api.cancel_order(stale_stop)
+                except Exception:
+                    pass  # usually already filled or cancelled
+            return
 
         close_price, atr_value, slow_ema, signal = (
             self.indicators(symbol)
@@ -3598,6 +3817,18 @@ class WheelStrategy:
         if state.option_symbol:
             return
 
+        if (
+            state.cooldown_until
+            and date_today().isoformat() < state.cooldown_until
+        ):
+            LOGGER.info(
+                "CSP skipped for %s: cooling down after a loss stop "
+                "until %s.",
+                symbol,
+                state.cooldown_until,
+            )
+            return
+
         if self.earnings.is_blackout(
             symbol
         ):
@@ -3625,6 +3856,7 @@ class WheelStrategy:
         if not self.risk.allow_wheel_entry(
             account,
             collateral,
+            positions=self.api.get_positions(),
         ):
             return
 
@@ -3649,24 +3881,31 @@ class WheelStrategy:
         )
 
         if order.get("status") == "dry_run":
-
-            avg = limit_price
-
-        else:
-
-            filled = self.wait_fill(
-                order_id
-            )
-
-            if not filled:
-                return
-
-            avg = as_float(
-                filled.get(
-                    "filled_avg_price"
-                ),
+            # Nothing was sent: log it, record nothing as open.
+            LOGGER.warning(
+                "DRY RUN: would sell put %s strike=%.2f DTE=%d "
+                "delta=%.3f at %.2f",
+                candidate.symbol,
+                candidate.strike,
+                candidate.dte,
+                candidate.delta,
                 limit_price,
             )
+            return
+
+        filled = self.wait_fill(
+            order_id
+        )
+
+        if not filled:
+            return
+
+        avg = as_float(
+            filled.get(
+                "filled_avg_price"
+            ),
+            limit_price,
+        )
 
         state.option_symbol = (
             candidate.symbol
@@ -3788,24 +4027,31 @@ class WheelStrategy:
         )
 
         if order.get("status") == "dry_run":
-
-            avg = limit_price
-
-        else:
-
-            filled = self.wait_fill(
-                order_id
-            )
-
-            if not filled:
-                return
-
-            avg = as_float(
-                filled.get(
-                    "filled_avg_price"
-                ),
+            LOGGER.warning(
+                "DRY RUN: would sell call %s strike=%.2f basis=%.2f "
+                "DTE=%d delta=%.3f at %.2f",
+                candidate.symbol,
+                candidate.strike,
+                state.assignment_basis,
+                candidate.dte,
+                candidate.delta,
                 limit_price,
             )
+            return
+
+        filled = self.wait_fill(
+            order_id
+        )
+
+        if not filled:
+            return
+
+        avg = as_float(
+            filled.get(
+                "filled_avg_price"
+            ),
+            limit_price,
+        )
 
         state.option_symbol = (
             candidate.symbol
@@ -3890,12 +4136,18 @@ class WheelStrategy:
         if not state.option_symbol or state.entry_premium is None:
             return
 
+        # Puts only. A covered call's loss is matched by the gain on the
+        # shares it covers, and being called away is the plan; buying it
+        # back on a rally would lock in that loss and keep re-selling.
+        if state.option_type != "put":
+            return
+
         position = find_position(positions, state.option_symbol)
         if not position:
             return
 
         snapshot = self.option_snapshot(
-            symbol, state.option_type or "put"
+            symbol, state.option_type
         )
         if not snapshot:
             return
@@ -3972,6 +4224,10 @@ class WheelStrategy:
         state.option_type = None
         state.entry_premium = None
         state.last_order_id = str(order.get("id", ""))
+        state.cooldown_until = (
+            date_today()
+            + timedelta(days=self.config.wheel_stop_cooldown_days)
+        ).isoformat()
 
         self.store.save(self.state)
 
@@ -4464,6 +4720,18 @@ class PortfolioEngine:
                 "Live trading requires explicit opt-in."
             )
 
+        if self.config.paper_orders and not self.config.paper:
+            raise RuntimeError(
+                "PAPER_ORDERS=true only works with ALPACA_PAPER=true; it "
+                "never sends orders to a real-money account."
+            )
+
+        if self.config.wheel_max_total_collateral_pct < self.config.wheel_max_collateral_pct:
+            raise ValueError(
+                "WHEEL_MAX_TOTAL_COLLATERAL_PCT must be >= "
+                "WHEEL_MAX_COLLATERAL_PCT."
+            )
+
         if (
             self.config.ema_fast
             >= self.config.ema_slow
@@ -4603,6 +4871,8 @@ class PortfolioEngine:
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "paper": self.config.paper,
             "live_trading": self.config.live_trading,
+            "paper_orders": self.config.paper_orders,
+            "orders_enabled": orders_enabled(self.config),
             "poll_seconds": self.config.poll_seconds,
             "congress_context_enabled": self.config.congress_context_enabled,
             "congress_reader_loaded": self.congress is not None,
@@ -4678,6 +4948,11 @@ class PortfolioEngine:
 
         if not halted:
             for symbol in self.config.stock_tickers:
+                # A kill switch pressed in the dashboard mid-cycle stops
+                # new work at the next symbol, not the next cycle.
+                if self.risk.kill_switch_active():
+                    halted = True
+                    break
                 try:
                     self.stock.process_symbol(
                         account,
@@ -4697,6 +4972,9 @@ class PortfolioEngine:
 
         if not halted:
             for symbol in self.config.wheel_tickers:
+                if self.risk.kill_switch_active():
+                    halted = True
+                    break
                 try:
                     self.wheel.process_symbol(
                         account,
@@ -4723,9 +5001,17 @@ class PortfolioEngine:
         )
 
         LOGGER.info(
-            "Paper=%s LiveTrading=%s",
+            "Paper=%s LiveTrading=%s PaperOrders=%s -> %s",
             self.config.paper,
             self.config.live_trading,
+            self.config.paper_orders,
+            (
+                "orders go to the PAPER account"
+                if orders_enabled(self.config) and self.config.paper
+                else "orders go to the LIVE account"
+                if orders_enabled(self.config)
+                else "dry run: no orders are sent"
+            ),
         )
 
         LOGGER.info(

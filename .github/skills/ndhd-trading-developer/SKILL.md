@@ -78,7 +78,7 @@ For any stateful feature, define: valid states and transitions, the broker facts
 4. Submit with explicit side, quantity, order type, and time-in-force; check `get_order_by_client_id()` before resubmitting after a crash instead of blindly retrying.
 5. Reconcile fills — `wait_fill()` polls order status; never treat submission as a fill.
 6. Persist the observed result, then advance strategy state.
-7. In dry-run (`LIVE_TRADING=false`), report the synthetic `DRYRUN-` result without mutating state as if a real fill occurred.
+7. In dry-run (`orders_enabled(config)` false: neither `LIVE_TRADING=true` nor `PAPER_ORDERS=true` on a paper account), report the synthetic `DRYRUN-` result without mutating state as if a real fill occurred. `PAPER_ORDERS` only ever reaches the paper account; real money still needs `LIVE_TRADING`.
 
 ### 4. Test for this codebase's actual failure modes
 

@@ -47,6 +47,7 @@ def account_to_out(account: Dict[str, Any]) -> AccountOut:
         account_blocked=bool(account.get("account_blocked")),
         paper=cfg.paper,
         live_trading=cfg.live_trading,
+        orders_enabled=engine.orders_enabled(cfg),
         pdt_fields_present=raw_daytrade is not None,
         daytrade_count=engine.as_int(raw_daytrade) if raw_daytrade is not None else None,
     )

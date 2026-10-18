@@ -3,7 +3,8 @@
 Used by scripts/start-ndhd.ps1 and deploy/setup-server.sh so both read .env
 exactly the way the engine does (python-dotenv, then Config's env_bool:
 only "true", any case, counts as on). Prints one line of JSON:
-{"env_file": true, "paper": true, "live_trading": false, "api_key_set": true}
+{"env_file": true, "paper": true, "live_trading": false, "paper_orders": true,
+ "api_key_set": true}
 """
 
 import json
@@ -26,6 +27,7 @@ json.dump({
     "env_file": env_path.exists(),
     "paper": flag("ALPACA_PAPER", True),
     "live_trading": flag("LIVE_TRADING", False),
+    "paper_orders": flag("PAPER_ORDERS", False),
     "api_key_set": bool((values.get("DASHBOARD_API_KEY") or "").strip()),
 }, sys.stdout)
 print()
