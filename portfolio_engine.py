@@ -105,6 +105,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
 
+# Strategy decisions as pure functions (step 1 of the architecture plan).
+# ema/atr/adx and OptionCandidate are re-exported for existing callers.
+from ndhd import rules
+from ndhd.indicators import adx, atr, ema  # noqa: F401
+from ndhd.rules import OptionCandidate  # noqa: F401
+
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
@@ -1370,156 +1376,8 @@ class AlpacaClient:
 # TECHNICAL INDICATORS
 # =============================================================================
 
-def ema(values: List[float], period: int) -> List[float]:
-    if len(values) < period:
-        return []
-
-    alpha = 2.0 / (period + 1.0)
-
-    result = [
-        sum(values[:period]) / period
-    ]
-
-    for value in values[period:]:
-        result.append(
-            (value * alpha)
-            + (
-                result[-1]
-                * (1.0 - alpha)
-            )
-        )
-
-    # Pad to same length.
-    return (
-        [math.nan] * (period - 1)
-    ) + result
-
-
-def atr(
-    highs: List[float],
-    lows: List[float],
-    closes: List[float],
-    period: int,
-) -> List[float]:
-
-    if len(closes) < period + 1:
-        return []
-
-    true_ranges = []
-
-    for i in range(1, len(closes)):
-        high = highs[i]
-        low = lows[i]
-        prev_close = closes[i - 1]
-
-        tr = max(
-            high - low,
-            abs(high - prev_close),
-            abs(low - prev_close),
-        )
-
-        true_ranges.append(tr)
-
-    result = []
-
-    first = sum(
-        true_ranges[:period]
-    ) / period
-
-    result.append(first)
-
-    for tr in true_ranges[period:]:
-        result.append(
-            (
-                result[-1] * (period - 1)
-                + tr
-            ) / period
-        )
-
-    # Align with original bar count.
-    return (
-        [math.nan] * (
-            len(closes) - len(result)
-        )
-    ) + result
-
-
-def adx(
-    highs: List[float],
-    lows: List[float],
-    closes: List[float],
-    period: int,
-) -> List[float]:
-    """
-    Average Directional Index - measures trend *strength* (not direction).
-
-    Rationale (Issue #1): an EMA crossover fires on noise as readily as on
-    a real trend. ADX is used as a regime filter: crossovers are only
-    acted on when ADX confirms the market is actually trending, which
-    materially reduces whipsaw entries in choppy/range-bound conditions.
-    """
-
-    n = len(closes)
-    if n < period * 2 + 1:
-        return []
-
-    plus_dm = [0.0] * n
-    minus_dm = [0.0] * n
-    tr = [0.0] * n
-
-    for i in range(1, n):
-        up_move = highs[i] - highs[i - 1]
-        down_move = lows[i - 1] - lows[i]
-
-        plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
-        minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0.0
-
-        tr[i] = max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1]),
-        )
-
-    def wilder_smooth(values: List[float]) -> List[float]:
-        smoothed = [0.0] * n
-        first = sum(values[1:period + 1])
-        smoothed[period] = first
-        for i in range(period + 1, n):
-            smoothed[i] = smoothed[i - 1] - (smoothed[i - 1] / period) + values[i]
-        return smoothed
-
-    tr_smooth = wilder_smooth(tr)
-    plus_dm_smooth = wilder_smooth(plus_dm)
-    minus_dm_smooth = wilder_smooth(minus_dm)
-
-    dx = [math.nan] * n
-    for i in range(period, n):
-        if tr_smooth[i] <= 0:
-            continue
-        plus_di = 100.0 * (plus_dm_smooth[i] / tr_smooth[i])
-        minus_di = 100.0 * (minus_dm_smooth[i] / tr_smooth[i])
-        denom = plus_di + minus_di
-        if denom <= 0:
-            dx[i] = 0.0
-            continue
-        dx[i] = 100.0 * (abs(plus_di - minus_di) / denom)
-
-    valid_dx = [v for v in dx[period:period * 2] if not math.isnan(v)]
-    if len(valid_dx) < period:
-        return [math.nan] * n
-
-    result = [math.nan] * n
-    adx_val = sum(valid_dx) / period
-    result[period * 2 - 1] = adx_val
-
-    for i in range(period * 2, n):
-        if math.isnan(dx[i]):
-            result[i] = result[i - 1]
-            continue
-        adx_val = ((adx_val * (period - 1)) + dx[i]) / period
-        result[i] = adx_val
-
-    return result
+# ema/atr/adx now live in ndhd/indicators.py (imported at the top and
+# re-exported from here).
 
 
 # =============================================================================
@@ -2519,98 +2377,32 @@ class StockStrategy:
             for x in bars
         ]
 
-        fast = ema(
-            closes,
-            self.config.ema_fast,
-        )
-        slow = ema(
-            closes,
-            self.config.ema_slow,
-        )
-        atr_values = atr(
-            highs,
-            lows,
-            closes,
-            self.config.atr_period,
-        )
-
-        adx_values = adx(
-            highs,
-            lows,
-            closes,
-            self.config.adx_period,
-        )
-
-        fast_now = fast[-1]
-        slow_now = slow[-1]
-        fast_prev = fast[-2]
-        slow_prev = slow[-2]
-        atr_now = atr_values[-1]
-        adx_now = adx_values[-1] if adx_values else math.nan
-
-        if any(
-            math.isnan(x)
-            for x in (
-                fast_now,
-                slow_now,
-                fast_prev,
-                slow_prev,
-                atr_now,
+        # The decision itself (crossover + ADX regime filter, Issue #1) is
+        # a pure function in ndhd.rules.
+        try:
+            sig = rules.stock_signal(
+                closes,
+                highs,
+                lows,
+                ema_fast=self.config.ema_fast,
+                ema_slow=self.config.ema_slow,
+                atr_period=self.config.atr_period,
+                adx_period=self.config.adx_period,
+                adx_min_strength=self.config.adx_min_strength,
             )
-        ):
+        except ValueError as exc:
             raise RuntimeError(
-                f"Indicators unavailable for {symbol}."
-            )
+                f"Indicators unavailable for {symbol}: {exc}"
+            ) from exc
 
-        long_cross = (
-            fast_prev <= slow_prev
-            and fast_now > slow_now
-        )
-
-        short_cross = (
-            fast_prev >= slow_prev
-            and fast_now < slow_now
-        )
-
-        # ---------------------------------------------------------------
-        # Regime filter (Issue #1): an EMA crossover in a low-ADX / choppy
-        # market is exactly the condition that produces whipsaw losses.
-        # Require ADX to confirm the market is actually trending before
-        # acting on the crossover. If ADX is unavailable (insufficient
-        # history), fail safe by treating the trend as unconfirmed.
-        # ---------------------------------------------------------------
-
-        trending = (
-            not math.isnan(adx_now)
-            and adx_now >= self.config.adx_min_strength
-        )
-
-        if (
-            long_cross
-            and closes[-1] > slow_now
-            and trending
-        ):
-            signal = "LONG"
-
-        elif (
-            short_cross
-            and closes[-1] < slow_now
-            and trending
-        ):
-            signal = "SHORT"
-
-        elif (long_cross or short_cross) and not trending:
+        if sig.crossover_ignored:
             LOGGER.info(
                 "%s crossover ignored: ADX=%.1f below "
                 "min strength %.1f (regime filter).",
                 symbol,
-                0.0 if math.isnan(adx_now) else adx_now,
+                sig.adx or 0.0,
                 self.config.adx_min_strength,
             )
-            signal = "NONE"
-
-        else:
-            signal = "NONE"
 
         # Purely informational, additive stash of the fuller diagnostic
         # picture (fast EMA / ADX / trend confirmation) for observability
@@ -2619,17 +2411,17 @@ class StockStrategy:
         # and changing that shape would ripple into process_symbol()/
         # manage_existing() for no trading-behavior benefit.
         self.last_diagnostics: Dict[str, Any] = {
-            "ema_fast": fast_now,
-            "ema_slow": slow_now,
-            "adx": None if math.isnan(adx_now) else adx_now,
-            "trending": trending,
+            "ema_fast": sig.ema_fast,
+            "ema_slow": sig.ema_slow,
+            "adx": sig.adx,
+            "trending": sig.trending,
         }
 
         return (
-            closes[-1],
-            atr_now,
-            slow_now,
-            signal,
+            sig.close,
+            sig.atr,
+            sig.ema_slow,
+            sig.signal,
         )
 
     def open_position(
@@ -2724,43 +2516,12 @@ class StockStrategy:
         # This is intentionally conservative.
         # ---------------------------------------------------------------------
 
-        equity = as_float(
-            account.get("equity")
-        )
-
-        risk_budget = (
-            equity * 0.01
-        )
-
-        stop_distance = (
-            atr_value
-            * self.config.initial_stop_atr
-        )
-
-        if stop_distance <= 0:
-            return
-
-        qty_by_risk = math.floor(
-            risk_budget
-            / stop_distance
-        )
-
-        if qty_by_risk <= 0:
-            return
-
-        max_notional = (
-            equity
-            * self.config.max_single_position_pct
-            / 100.0
-        )
-
-        qty_by_notional = math.floor(
-            max_notional / price
-        )
-
-        qty = min(
-            qty_by_risk,
-            qty_by_notional,
+        qty = rules.position_size(
+            equity=as_float(account.get("equity")),
+            price=price,
+            atr_value=atr_value,
+            stop_atr=self.config.initial_stop_atr,
+            max_single_position_pct=self.config.max_single_position_pct,
         )
 
         if qty <= 0:
@@ -2883,28 +2644,13 @@ class StockStrategy:
 
         state.entry_price = entry_price
 
-        initial_distance = (
-            atr_value
-            * self.config.initial_stop_atr
+        initial_stop = rules.initial_stop(
+            "long" if signal == "LONG" else "short",
+            entry_price,
+            atr_value,
+            self.config.initial_stop_atr,
         )
-
-        if signal == "LONG":
-
-            initial_stop = (
-                entry_price
-                - initial_distance
-            )
-
-            exit_side = "sell"
-
-        else:
-
-            initial_stop = (
-                entry_price
-                + initial_distance
-            )
-
-            exit_side = "buy"
+        exit_side = "sell" if signal == "LONG" else "buy"
 
         state.initial_stop_price = (
             initial_stop
@@ -3099,60 +2845,17 @@ class StockStrategy:
             atr_value=atr_value,
         )
 
-        if direction == "long":
+        move = (current_price - state.entry_price) / state.entry_price * 100.0
+        profit_pct = move if direction == "long" else -move
 
-            profit_pct = (
-                (
-                    current_price
-                    - state.entry_price
-                )
-                / state.entry_price
-            ) * 100.0
-
-            candidate_stop = (
-                current_price
-                - atr_value
-                * self.config.trail_atr
-            )
-
-            # Never loosen the stop.
-            old_stop = (
-                state.trailing_stop_price
-                or state.initial_stop_price
-                or 0
-            )
-
-            tightened_stop = max(
-                old_stop,
-                candidate_stop,
-            )
-
-        else:
-
-            profit_pct = (
-                (
-                    state.entry_price
-                    - current_price
-                )
-                / state.entry_price
-            ) * 100.0
-
-            candidate_stop = (
-                current_price
-                + atr_value
-                * self.config.trail_atr
-            )
-
-            old_stop = (
-                state.trailing_stop_price
-                or state.initial_stop_price
-                or float("inf")
-            )
-
-            tightened_stop = min(
-                old_stop,
-                candidate_stop,
-            )
+        # Never loosens: see rules.trailing_stop.
+        tightened_stop = rules.trailing_stop(
+            direction,
+            current_price,
+            atr_value,
+            self.config.trail_atr,
+            state.trailing_stop_price or state.initial_stop_price,
+        )
 
         # ---------------------------------------------------------------------
         # Activate dynamic trailing stop after profitability threshold.
@@ -3264,10 +2967,11 @@ class StockStrategy:
         long = state.direction == "long"
         stop_price = state.trailing_stop_price or state.initial_stop_price
         if not stop_price:
-            distance = atr_value * self.config.initial_stop_atr
-            stop_price = (
-                state.entry_price - distance if long
-                else state.entry_price + distance
+            stop_price = rules.initial_stop(
+                state.direction,
+                state.entry_price,
+                atr_value,
+                self.config.initial_stop_atr,
             )
             state.initial_stop_price = stop_price
             state.trailing_stop_price = stop_price
@@ -3298,13 +3002,7 @@ class StockStrategy:
         new_stop: float,
         old_stop: Optional[float],
     ) -> bool:
-
-        if old_stop is None:
-            return True
-
-        if direction == "long":
-            return new_stop > old_stop + 0.009
-        return new_stop < old_stop - 0.009
+        return rules.is_tighter(direction, new_stop, old_stop)
 
     def replace_stop_order(
         self,
@@ -3466,21 +3164,6 @@ class StockStrategy:
 # WHEEL STRATEGY
 # =============================================================================
 
-@dataclass
-class OptionCandidate:
-    symbol: str
-    option_type: str
-    strike: float
-    expiration: date
-    dte: int
-    delta: float
-    bid: float
-    ask: float
-    midpoint: float
-    spread_pct: float
-    open_interest: int
-
-
 class WheelStrategy:
 
     def __init__(
@@ -3589,168 +3272,40 @@ class WheelStrategy:
             )
         )
 
-        candidates: List[OptionCandidate] = []
-
-        for contract in contracts:
-
-            if not contract.get(
-                "tradable",
-                False,
-            ):
-                continue
-
-            contract_symbol = contract.get(
-                "symbol"
-            )
-
-            snapshot = snapshots.get(
-                contract_symbol
-            )
-
-            if not snapshot:
-                continue
-
-            try:
-                expiration = date.fromisoformat(
-                    contract[
-                        "expiration_date"
-                    ]
-                )
-            except Exception:
-                continue
-
-            contract_dte = (
-                expiration - today
-            ).days
-
-            if not (
-                self.config.wheel_min_dte
-                <= contract_dte
-                <= self.config.wheel_max_dte
-            ):
-                continue
-
-            strike = as_float(
-                contract.get(
-                    "strike_price"
-                )
-            )
-
-            if strike <= 0:
-                continue
-
-            if option_type == "put":
-                if strike >= underlying_price:
-                    continue
-            else:
-                if strike <= underlying_price:
-                    continue
-
-                if (
-                    minimum_strike is not None
-                    and strike <= minimum_strike
-                ):
-                    continue
-
-            greeks = (
-                snapshot.get(
-                    "greeks",
-                    {}
-                )
-                or {}
-            )
-
-            delta = as_float(
-                greeks.get("delta"),
-                default=math.nan,
-            )
-
-            if math.isnan(delta):
-                continue
-
-            quote = (
-                snapshot.get(
-                    "latestQuote",
-                    {}
-                )
-                or {}
-            )
-
-            bid = as_float(
-                quote.get("bp")
-            )
-            ask = as_float(
-                quote.get("ap")
-            )
-
-            if bid <= 0 or ask <= 0:
-                continue
-
-            midpoint = (
-                bid + ask
-            ) / 2.0
-
-            spread_pct = (
-                (ask - bid)
-                / midpoint
-            ) * 100.0
-
-            if bid < self.config.wheel_min_option_bid:
-                continue
-
+        candidates = [
+            candidate
+            for contract in contracts
             if (
-                spread_pct
-                > self.config.wheel_max_option_spread_pct
-            ):
-                continue
-
-            oi = as_int(
-                contract.get(
-                    "open_interest"
-                )
-            )
-
-            if oi < self.config.wheel_min_open_interest:
-                continue
-
-            candidates.append(
-                OptionCandidate(
-                    symbol=contract_symbol,
+                candidate := rules.evaluate_contract(
+                    contract,
+                    snapshots.get(contract.get("symbol")),
                     option_type=option_type,
-                    strike=strike,
-                    expiration=expiration,
-                    dte=contract_dte,
-                    delta=abs(delta),
-                    bid=bid,
-                    ask=ask,
-                    midpoint=midpoint,
-                    spread_pct=spread_pct,
-                    open_interest=oi,
+                    underlying_price=underlying_price,
+                    today=today,
+                    min_dte=self.config.wheel_min_dte,
+                    max_dte=self.config.wheel_max_dte,
+                    min_bid=self.config.wheel_min_option_bid,
+                    max_spread_pct=self.config.wheel_max_option_spread_pct,
+                    min_open_interest=self.config.wheel_min_open_interest,
+                    minimum_strike=minimum_strike,
                 )
             )
+        ]
 
-        if not candidates:
+        best = rules.choose_option(
+            candidates,
+            target_delta=self.config.wheel_target_delta,
+            min_dte=self.config.wheel_min_dte,
+            max_dte=self.config.wheel_max_dte,
+        )
+
+        if best is None:
             raise RuntimeError(
                 f"No suitable {option_type} "
                 f"contract found for {symbol}."
             )
 
-        target_dte = (
-            self.config.wheel_min_dte
-            + self.config.wheel_max_dte
-        ) / 2.0
-
-        return min(
-            candidates,
-            key=lambda c: (
-                abs(
-                    c.delta
-                    - self.config.wheel_target_delta
-                ),
-                abs(c.dte - target_dte),
-                c.spread_pct,
-            ),
-        )
+        return best
 
     def wait_fill(
         self,
@@ -4158,8 +3713,8 @@ class WheelStrategy:
         if ask <= 0:
             return
 
-        max_loss_debit = state.entry_premium * (
-            1.0 + self.config.wheel_max_loss_pct / 100.0
+        max_loss_debit = rules.max_loss_price(
+            state.entry_premium, self.config.wheel_max_loss_pct
         )
 
         if ask < max_loss_debit:
@@ -4282,12 +3837,8 @@ class WheelStrategy:
         if bid <= 0 or ask <= 0:
             return
 
-        target_debit = (
-            state.entry_premium
-            * (
-                1.0
-                - self.config.wheel_profit_target_pct
-            )
+        target_debit = rules.profit_target_price(
+            state.entry_premium, self.config.wheel_profit_target_pct
         )
 
         if ask > target_debit:
