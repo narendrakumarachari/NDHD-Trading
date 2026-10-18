@@ -53,6 +53,10 @@ if self.config.pdt_protection and equity < self.config.pdt_equity_threshold:
 
 Since Alpaca no longer returns `daytrade_count`, `account.get(...)` returns `None`, `as_int(None)` defaults to `0`, and `0 >= pdt_max_day_trades` is always `False`. **`PDT_PROTECTION` has been a silent no-op since 2026-07-06** — no exception, no log warning, no alert. It simply stopped blocking anything. This is the sharpest available illustration of why "the code has a guard" and "the guard still works" are different claims, and it is a concrete, ready-to-implement item for the developer skill: migrate to Alpaca's Intraday Margin Framework (real-time, equity-adjusted `buying_power` and Intraday Margin Deficit tracking) rather than a day-trade counter that no longer exists.
 
+### Second live finding: the earnings filter failed closed on everything (found 2026-10-18)
+
+yfinance changed `Ticker.calendar` from a DataFrame to a dict. `EarningsFilter.is_blackout()` read only the DataFrame shape, found no dates, and failed closed, so every stock and Wheel entry on every symbol was blocked from at least 2026-08-23 until the fix (633 logged failures, zero order attempts). Failing closed was the right default, but with email alerts off the only trace was a log line, so the engine looked healthy while doing nothing. Lessons: a fail-closed guard needs a visible "has this blocked everything for N days?" signal, and funds (SPY and similar) have no earnings date by design, so they are exempted explicitly (`EARNINGS_EXEMPT_SYMBOLS`) rather than treated as failures. The same calendar dict carries `Ex-Dividend Date`, the input the covered-call dividend check needs.
+
 ### Other standards currently in force (verified 2026-08-23)
 
 - **Settlement is T+1** (since 2024-05-28): a stock sale's cash isn't available for a new entry until the next business day settles. `allow_wheel_entry()` compares Wheel collateral against `account.get("cash")`, which can overstate same-day availability right after a sale.

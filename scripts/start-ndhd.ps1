@@ -137,7 +137,7 @@ if ($NoEngine) {
 } else {
     $cmd = "`$host.UI.RawUI.WindowTitle = 'NDHD engine'; & '$python' portfolio_engine.py"
     Start-Process powershell -ArgumentList '-NoExit', '-Command', $cmd -WorkingDirectory $root -WindowStyle Minimized
-    Say "Engine: started in paper mode. While the market is open it places paper orders on its own." Green
+    Say "Engine: started in paper mode. LIVE_TRADING=false, so it only logs the orders it would place; nothing is sent, not even to the paper account." Green
 }
 
 # --- 4. Private access from your laptop and phone (Tailscale Serve, tailnet only)
