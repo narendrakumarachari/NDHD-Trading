@@ -1,0 +1,21 @@
+# NDHD trading engine (paper). Installed by deploy/setup-server.sh, which
+# refuses to install it unless .env has ALPACA_PAPER=true and LIVE_TRADING off.
+[Unit]
+Description=NDHD trading engine (paper)
+After=network-online.target ndhd-api.service
+Wants=network-online.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/.venv/bin/python portfolio_engine.py
+Restart=always
+RestartSec=30
+# Stop it the way Ctrl+C does, so it shuts down cleanly and releases its lock.
+KillSignal=SIGINT
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

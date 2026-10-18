@@ -1,6 +1,6 @@
 ---
 name: ndhd-trading-investor
-description: 'Think and decide like a risk-aware capital allocator before changing trading behavior in this repository. Use for evaluating stock/Wheel signals, position sizing, risk limits, and regulatory or market-structure assumptions (PDT, wash sale, settlement, assignment) that affect portfolio_engine.py or alpaca_wheel_strategy.py. Pairs with the ndhd-trading-developer skill, which implements what this skill approves.'
+description: 'Think and decide like a risk-aware capital allocator before changing trading behavior in this repository. Use for evaluating stock/Wheel signals, position sizing, risk limits, alternative data such as congressional STOCK Act disclosures (congress_trades/), and regulatory or market-structure assumptions (PDT, wash sale, settlement, assignment) that affect portfolio_engine.py or alpaca_wheel_strategy.py. Pairs with the ndhd-trading-developer skill, which implements what this skill approves.'
 argument-hint: 'Describe the trading idea, risk question, or existing control you want evaluated from an investor/risk-manager perspective.'
 user-invocable: true
 disable-model-invocation: false
@@ -64,6 +64,56 @@ Since Alpaca no longer returns `daytrade_count`, `account.get(...)` returns `Non
 
 Sources checked: [FINRA Regulatory Notice 26-10](https://www.finra.org/rules-guidance/notices/26-10), [Alpaca: FINRA Retires the PDT Rule](https://alpaca.markets/blog/finra-retires-the-pdt-rule-introducing-alpacas-new-intraday-margin-framework/), [Alpaca changelog: PDT/DTBP fields deprecated](https://docs.alpaca.markets/us/changelog/2026-06-03-pdt-651df23), [Alpaca: The Intraday Margin Rule](https://docs.alpaca.markets/us/docs/the-intraday-margin-rule), [White & Case: T+1 Settlement](https://www.whitecase.com/insight-alert/t1-settlement-cycle-take-effect-may-28-2024), [Fidelity: Wash-Sale Rules](https://www.fidelity.com/learning-center/personal-finance/wash-sales-rules-tax), [Investor.gov: Circuit Breakers](https://www.investor.gov/introduction-investing/investing-basics/glossary/stock-market-circuit-breakers), [Fidelity: Dividends and Options Assignment Risk](https://www.fidelity.com/learning-center/investment-products/options/dividends-options-assignment-risk).
 
+### Runtime and dependencies (verified 2026-10-03)
+
+- Python 3.10 reached end of life on 2026-10-01 and no longer gets security fixes. The project now runs on Python 3.14 (`.venv`), with the old environment kept as `.venv-py310` for rollback.
+- Libraries are pinned exactly in `requirements.txt` / `requirements-api.txt`, with every transitive package pinned and hashed in `requirements.lock.txt`. A known-vulnerability scan of that lock was clean on 2026-10-03; `urllib3` 2.7.0 and `setuptools` 58.1.0 in the old environment were not.
+- "Up to date" is a dated claim like any other: re-scan before trusting it, and treat a dependency upgrade that changes a major version (pandas 3, numpy 2.5, websockets 17 in this upgrade) as a behavior change that needs a paper-trading window, not a no-op.
+
+Sources checked: [Python versions and end-of-life](https://devguide.python.org/versions/), [Python 3.14.8 release](https://www.python.org/downloads/release/python-3148/).
+
+## Congressional disclosure data (`congress_trades/`)
+
+`congress_trades/` turns STOCK Act periodic transaction reports from both parties into `data/congress_trades.json`, plus a dashboard. It is research input. This section decides what the engines may do with it.
+
+### What the evidence says (verified 2026-10-03)
+
+- On average, members of Congress do **not** beat the market after the STOCK Act. In Belmont et al. (2022), House members' purchases underperformed by about 26 bp over six months, and even senators accused of insider trading looked like random stock pickers.
+- The exception is power. Wei and Zhou (1995–2021 data) find leaders, such as the Speaker and committee chairs, outperform their peers sharply after taking the role. The channels they identify are trading ahead of regulatory action and favoured firms later receiving more government contracts.
+- That edge is measured from the **trade date**. The public only sees a trade at the **filing date**, which is often 2–6 weeks later. Whatever edge exists may be gone by the time the engine could act.
+
+Sources: [Belmont et al., Journal of Public Economics 2022](https://econpapers.repec.org/article/eeepubeco/v_3a207_3ay_3a2022_3ai_3ac_3as0047272722000044.htm), [Wei and Zhou, VoxEU](https://cepr.org/voxeu/columns/political-power-and-profitable-trades-us-congress).
+
+### Decision: what the data may and may not do
+
+| Use | Status | Why |
+| --- | --- | --- |
+| Human research: dashboard, watchlist ideas, reading the "why" evidence | **Approved** | No automated exposure; the operator decides |
+| Advisory context in logs, alerts and the API for symbols the engine holds or is about to enter | **Approved to build** (phase 1) | Changes no order decision; fully reversible by a config flag |
+| Veto or size-down of a new entry (e.g. heavy recent selling by committee members) | **Not approved** | Needs phase 2 evidence first; a veto is still a strategy change |
+| Trigger a new entry or increase position size | **Rejected** | Average evidence is negative or zero, the data is weeks late, amounts are ranges |
+| Override stops, kill switch, exposure caps or any guardrail | **Never** | |
+
+### Rules any use must follow
+
+- **Time the signal by `filing_date`, never `trade_date`.** Using the trade date in research or a backtest is look-ahead bias, because the market could not have known.
+- **Only `source_status == "verified"` rows may reach the engine.** Aggregator rows stay dashboard-only until checked against the House Clerk or Senate eFD filing.
+- **Amounts are ranges.** `amount_mid_estimate` is a guess and must never become a share count, a position size or a weight.
+- **Check concentration before reading a "trend".** In the first sample, one member made 97 of 192 sells. A signal driven by one account is one account's rebalancing, not Congress's view.
+- **Most trades are noise.** Spouse accounts, managed accounts, index rebalancing and tax selling are the base case. Treat clusters (several members, same direction, same 14 days, no opposite-side trades) and committee overlap as the only patterns worth attention.
+- **The data is optional.** If the file is missing, stale (older than 3 business days) or malformed, the engine behaves exactly as it does without it. It must never block entries because the file is absent; that would turn a research feed into a single point of failure. A future veto, if approved, must define its own staleness and failure behaviour before it ships.
+- **Personal, non-commercial use only.** The Senate eFD site prohibits commercial use of the reports. Keep `data/` out of git and never republish it.
+- **Watch the rules.** The House passed the Stop Insider Trading Act (H.R. 7008) in July 2026 and the Senate defeated it 53–47 on 2026-09-30. A future ban on member purchases would change what gets filed and invalidate any statistics built on today's data.
+
+### Evidence bar to promote it beyond advisory (phase 2)
+
+Before approving a veto or any weight in entries, require an event study on this repo's own data:
+
+1. Signal date = `filing_date`. Forward returns are measured over 5, 20 and 60 trading days against the stock's sector ETF, after spread and slippage.
+2. Results are split by cluster vs single trade, buy vs sell, leader or committee-overlap vs rank-and-file, and verified rows only.
+3. At least 12 months of filings, with the last 3 months held out and not looked at until the rule is fixed.
+4. **Disconfirming result:** if the held-out excess return of clusters is not positive after costs, or depends on one or two members, the data stays advisory permanently.
+
 ## Model money and failure paths
 
 For any change, write the invariant down before implementation:
@@ -101,5 +151,6 @@ Before treating a change as investor-approved, confirm:
 - the thesis, capital at risk, and disconfirming evidence are stated;
 - worst-case loss and the specific guardrails it passes through are named;
 - any regulatory/broker assumption touched was checked against a current source, not assumed;
+- any alternative-data input (such as `congress_trades/`) is used only at the approved level in its decision table, timed by when the public could know it, and optional to the engine;
 - known limitations and residual risk are stated in plain terms, including anything discovered to be silently degraded;
 - whether the change is paper-tested, live-ready, or neither.

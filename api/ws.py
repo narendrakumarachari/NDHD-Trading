@@ -82,6 +82,22 @@ def build_strategy_snapshot() -> dict:
         "stocks": [s.model_dump() for s in get_stocks()],
         "wheels": [w.model_dump() for w in get_wheels()],
         "risk": get_risk().model_dump(),
+        "market": _market_clock(),
+    }
+
+
+def _market_clock() -> dict | None:
+    """Whether the market is open, so the UI can label quotes as stale
+    (weekend spreads look alarming otherwise). None if the clock call fails."""
+    try:
+        clock = deps.get_alpaca_client().get_clock()
+    except Exception as exc:  # noqa: BLE001 - a label, never worth failing the tick
+        LOGGER.warning("WS market clock failed: %s", exc)
+        return None
+    return {
+        "is_open": bool(clock.get("is_open")),
+        "next_open": clock.get("next_open"),
+        "next_close": clock.get("next_close"),
     }
 
 

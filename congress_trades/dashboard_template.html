@@ -1,0 +1,373 @@
+<title>Congress Trade Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: a single reading column of "ledger sheets" — summary first, then one sheet per question a reader asks, raw rows last. */
+:root {
+  --paper: #f6f7f9;
+  --sheet: #ffffff;
+  --ink: #141a24;
+  --ink-2: #4a5263;
+  --ink-3: #6b7383;
+  --rule: #dde1e8;
+  --grid: #eceef2;
+  --accent: #23395d;
+  --buy: #2a78d6;
+  --sell: #e34948;
+  --buy-tint: #e3eefb;
+  --sell-tint: #fbe6e6;
+  --warn: #9a6400;
+  --warn-tint: #fdf1d8;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12151b; --sheet: #1a1e26; --ink: #eef1f6; --ink-2: #c0c6d2; --ink-3: #9aa2b2;
+    --rule: #2c323d; --grid: #242a33; --accent: #a9bde0; --buy: #3987e5; --sell: #e66767;
+    --buy-tint: #1b2b42; --sell-tint: #3a2024; --warn: #f0c060; --warn-tint: #3a2e14; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12151b; --sheet: #1a1e26; --ink: #eef1f6; --ink-2: #c0c6d2; --ink-3: #9aa2b2;
+  --rule: #2c323d; --grid: #242a33; --accent: #a9bde0; --buy: #3987e5; --sell: #e66767;
+  --buy-tint: #1b2b42; --sell-tint: #3a2024; --warn: #f0c060; --warn-tint: #3a2e14; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 15px/1.55 var(--font-body); }
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 20px; }
+h1, h2 { font-family: var(--font-display); font-weight: 700; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); line-height: 1.1; }
+h2 { font-size: 1.35rem; line-height: 1.25; }
+p { margin: 0; }
+.eyebrow { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.mono { font-family: var(--font-mono); font-weight: 500; }
+.num { font-variant-numeric: tabular-nums; }
+header { display: grid; gap: 10px; padding-block: 8px 4px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--ink-2); font-size: 0.86rem; }
+.notice { background: var(--warn-tint); color: var(--ink); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px; font-size: 0.88rem; display: grid; gap: 4px; }
+.notice strong { color: var(--warn); }
+.sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 20px; display: grid; gap: 14px; min-width: 0; }
+.sheet > header { padding: 0; gap: 4px; }
+.lede { color: var(--ink-2); max-width: 68ch; }
+.kid { font-family: var(--font-display); font-size: 1.15rem; line-height: 1.45; max-width: 60ch; }
+.kid b { font-weight: 700; }
+.kid .b { color: var(--buy); } .kid .s { color: var(--sell); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.tile { border-top: 2px solid var(--rule); padding-top: 8px; display: grid; gap: 2px; }
+.tile .v { font-size: 1.7rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tile .k { font-size: 0.82rem; color: var(--ink-2); }
+.tile.buy { border-color: var(--buy); } .tile.sell { border-color: var(--sell); } .tile.late { border-color: var(--warn); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.84rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.chart { position: relative; overflow-x: auto; }
+.chart svg { display: block; width: 100%; height: auto; min-width: 520px; }
+.chart text { fill: var(--ink-2); font-family: var(--font-body); font-size: 12px; }
+.chart .lbl { fill: var(--ink); font-weight: 600; }
+.chart .tick { fill: var(--ink-3); font-size: 11px; }
+.chart .gridl { stroke: var(--grid); }
+.chart .axis0 { stroke: var(--ink-3); }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit:hover { fill: var(--grid); fill-opacity: 0.6; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--paper); font-size: 0.8rem; line-height: 1.4; padding: 8px 10px; border-radius: 6px; max-width: 280px; z-index: 2; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.clusters { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.cl { border: 1px solid var(--rule); border-radius: 6px; padding: 12px; display: grid; gap: 6px; align-content: start; }
+.cl .t { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.cl .t .mono { font-size: 1.05rem; }
+.cl .who { font-size: 0.84rem; color: var(--ink-2); }
+.pill { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+.pill.buy { background: var(--buy-tint); color: var(--buy); }
+.pill.sell { background: var(--sell-tint); color: var(--sell); }
+.pill.warn { background: var(--warn-tint); color: var(--warn); }
+.pill.party { background: var(--grid); color: var(--ink-2); }
+.pill.ok { background: var(--grid); color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+.tile.ok { border-color: var(--accent); }
+.tablebox { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; max-height: 560px; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--sheet); font-size: 0.74rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; z-index: 1; }
+td.r, th.r { text-align: right; }
+td.name { white-space: normal; min-width: 180px; }
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.filters label { display: grid; gap: 3px; font-size: 0.76rem; color: var(--ink-3); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+select, input { font: inherit; font-size: 0.9rem; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.count { font-size: 0.84rem; color: var(--ink-2); }
+.why { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.why dl { margin: 0; display: grid; gap: 8px; }
+.why dt { font-size: 0.74rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); }
+.why dd { margin: 0; }
+.slot { color: var(--ink-3); font-style: italic; }
+footer { color: var(--ink-3); font-size: 0.8rem; display: grid; gap: 6px; }
+footer a { color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .hit { transition: fill 120ms; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">NDHD research · STOCK Act disclosures</span>
+    <h1>Congress Trade Ledger</h1>
+    <div class="meta num" id="meta"></div>
+    <div class="notice"><span id="source-note"></span><span>Every dollar figure is an estimate: filings report a range (for example $1,001 to $15,000), and we use its midpoint. Research only, not investment advice.</span></div>
+  </header>
+
+  <section class="sheet" aria-labelledby="h-today">
+    <header><span class="eyebrow">In one sentence</span><h2 id="h-today">What lawmakers did</h2></header>
+    <p class="kid" id="kid"></p>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section class="sheet" aria-labelledby="h-co">
+    <header><span class="eyebrow">Which companies</span><h2 id="h-co">Bought or sold, by company</h2>
+      <p class="lede">Bars to the right show estimated dollars bought; bars to the left show estimated dollars sold. The 14 companies with the most trading are shown. Hover a row for who traded it.</p></header>
+    <div class="legend"><span><i class="sw" style="background:var(--buy)"></i>Bought →</span><span><i class="sw" style="background:var(--sell)"></i>← Sold</span></div>
+    <div class="chart" id="c-co"></div>
+  </section>
+
+  <div class="two">
+    <section class="sheet" aria-labelledby="h-sec">
+      <header><span class="eyebrow">Which industries</span><h2 id="h-sec">Bought or sold, by industry</h2></header>
+      <div class="chart" id="c-sec"></div>
+    </section>
+    <section class="sheet" aria-labelledby="h-party">
+      <header><span class="eyebrow">Both parties</span><h2 id="h-party">Number of trades, by party</h2>
+        <p class="lede">Counted in trades, not dollars. One lawmaker with many trades can tilt a party's total.</p></header>
+      <div class="chart" id="c-party"></div>
+    </section>
+  </div>
+
+  <section class="sheet" aria-labelledby="h-cl">
+    <header><span class="eyebrow">Same stock, several lawmakers</span><h2 id="h-cl">Stocks traded by more than one lawmaker</h2>
+      <p class="lede">When several lawmakers buy the same company in the same few weeks, that is the pattern worth a closer look. Stocks with both buyers and sellers show no shared view.</p></header>
+    <div class="clusters" id="clusters"></div>
+  </section>
+
+  <div class="two">
+    <section class="sheet" aria-labelledby="h-lag">
+      <header><span class="eyebrow">How late the news is</span><h2 id="h-lag">Days between the trade and the filing</h2>
+        <p class="lede">By law a trade must be filed within 45 days. You learn about it weeks after it happened.</p></header>
+      <div class="chart" id="c-lag"></div>
+    </section>
+    <section class="sheet" aria-labelledby="h-why">
+      <header><span class="eyebrow">Why did they trade?</span><h2 id="h-why">What the daily run adds to each trade</h2>
+        <p class="lede">Filings never say why. For each stock trade, the run gathers evidence and writes a labelled guess. This is the layout; the fields fill in once enrichment runs.</p></header>
+      <div class="why"><dl>
+        <dt>Trade</dt><dd id="why-trade"></dd>
+        <dt>Committee overlap</dt><dd class="slot">Filled by the daily run from committee lists</dd>
+        <dt>Related bills and contracts</dt><dd class="slot">Congress.gov and USAspending, 90 days around the trade</dd>
+        <dt>Possible explanation</dt><dd class="slot">Two sentences at most, with a confidence level</dd>
+        <dt>Ordinary explanation</dt><dd class="slot">For example rebalancing, or a manager's routine trade</dd>
+      </dl></div>
+    </section>
+  </div>
+
+  <section class="sheet" aria-labelledby="h-review" id="review-box">
+    <header><span class="eyebrow">Not read yet</span><h2 id="h-review">Filings a person needs to read</h2>
+      <p class="lede">Some filings are scanned paper or hand-written, or did not look the way we expected. We never guess what they say, so their trades are not counted above. Click to read the original.</p></header>
+    <div class="tablebox"><table><thead><tr><th>Filed</th><th>Lawmaker</th><th>Why</th><th>Filing</th></tr></thead><tbody id="review"></tbody></table></div>
+  </section>
+
+  <section class="sheet" aria-labelledby="h-who">
+    <header><span class="eyebrow">Who is trading</span><h2 id="h-who">Lawmakers in this window</h2>
+      <p class="lede">Stock trades only. Bonds, private companies and unmatched tickers are counted separately.</p></header>
+    <div class="tablebox"><table><thead><tr><th>Lawmaker</th><th>Party</th><th>Chamber</th><th class="r">Buys</th><th class="r">Sells</th><th class="r">Est. bought</th><th class="r">Est. sold</th><th class="r">Other rows</th></tr></thead><tbody id="filers"></tbody></table></div>
+  </section>
+
+  <section class="sheet" aria-labelledby="h-rows">
+    <header><span class="eyebrow">Every row</span><h2 id="h-rows">All trades in this window</h2>
+      <p class="lede"><span class="pill ok">Official ✓</span> means we read it from the House's own filing. <span class="pill warn">Not checked</span> means it came from a website that copies filings, and we have not matched it to the official one yet.</p></header>
+    <div class="filters">
+      <label for="f-q">Ticker or name<input id="f-q" type="search" placeholder="e.g. NVDA"></label>
+      <label for="f-party">Party<select id="f-party"><option value="">All</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option></select></label>
+      <label for="f-dir">Direction<select id="f-dir"><option value="">All</option><option>Buy</option><option>Sell</option><option>Exchange</option></select></label>
+      <label for="f-type">Asset<select id="f-type"><option value="">All</option><option>Stock</option><option>Bond</option><option>Option</option><option>Fund</option><option>Private/LLC</option><option>Crypto</option><option>Other</option><option>Unresolved</option></select></label>
+      <label for="f-src">Checked?<select id="f-src"><option value="">All</option><option value="verified">Official ✓</option><option value="unverified">Not checked</option></select></label>
+      <span class="count num" id="f-count"></span>
+    </div>
+    <div class="tablebox"><table><thead><tr><th>Filed</th><th>Traded</th><th class="r">Lag</th><th>Lawmaker</th><th>Ticker</th><th>Asset</th><th>Direction</th><th>Range</th><th>Checked?</th><th>Flags</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+
+  <footer>
+    <span>Official filings: <a href="https://disclosures-clerk.house.gov/FinancialDisclosure" target="_blank" rel="noopener">House Clerk</a> and <a href="https://efdsearch.senate.gov/search/home/" target="_blank" rel="noopener">Senate eFD</a>. Unchecked rows: <a href="https://congressflow.com/trades" target="_blank" rel="noopener">congressflow.com</a>. Personal, non-commercial research.</span>
+    <span id="disc"></span>
+  </footer>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const S = DATA.summary;
+const $ = (id) => document.getElementById(id);
+const usd = (n) => n >= 1e6 ? `$${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${n}`;
+const fmtDate = (iso) => new Date(iso + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const range = (t) => t.amount_high ? `$${t.amount_low.toLocaleString()}–$${t.amount_high.toLocaleString()}` : `Over $${t.amount_low.toLocaleString()}`;
+const NS = "http://www.w3.org/2000/svg";
+
+const c = S.counts;
+const verified = c.verified ?? 0, unverified = c.unverified ?? DATA.trades.length, review = DATA.needs_review ?? [];
+$("meta").innerHTML = `<span>As of ${fmtDate(S.as_of)}, ${S.as_of.slice(0, 4)}</span><span>Window: last ${S.window_days} days of filings</span><span>${c.rows_after_dedupe} rows after removing duplicate listings</span>`;
+$("disc").textContent = DATA.disclaimer;
+$("source-note").innerHTML = verified
+  ? `<strong>${verified} rows are official ✓</strong>, read straight from the House's own filings. ${unverified} rows are <strong>not checked</strong>: they come from a website that copies filings (all Senate rows, and House rows we could not match). ${review.length ? `${review.length} filings could not be read by computer and are listed for a person to read.` : ""}`
+  : `<strong>Nothing here is checked yet.</strong> Every row comes from a website that copies filings (congressflow.com), not from the official House and Senate sites.`;
+
+const topBuy = [...S.tickers].filter((t) => t.buy_est > 0).sort((a, b) => b.buy_est - a.buy_est)[0];
+const topSell = [...S.tickers].filter((t) => t.sell_est > 0).sort((a, b) => b.sell_est - a.sell_est)[0];
+const heaviest = [...S.filers].sort((a, b) => (b.buys + b.sells) - (a.buys + a.sells))[0];
+const ratio = c.buys && c.sells ? Math.max(c.buys, c.sells) / Math.min(c.buys, c.sells) : 0;
+const lean = !c.buys || !c.sells ? "" : ratio < 1.25 ? `They bought and sold about equally often` : c.sells > c.buys
+  ? `They <b class="s">sold more often</b> than they bought` : `They <b class="b">bought more often</b> than they sold`;
+const heavyShare = heaviest && c.stock_trades ? (heaviest.buys + heaviest.sells) / c.stock_trades : 0;
+$("kid").innerHTML = [
+  `${c.filers} lawmakers reported <b>${c.stock_trades}</b> stock trades.`,
+  lean && `${lean} (${c.sells} sells, ${c.buys} buys).`,
+  topBuy && `The biggest buy was <b class="b">${esc(topBuy.name)}</b>.`,
+  topSell && `The biggest sell was <b class="s">${esc(topSell.name)}</b>.`,
+  heavyShare >= 0.3 && `One lawmaker, ${esc(heaviest.filer)}, made ${heaviest.buys + heaviest.sells} of the ${c.stock_trades} stock trades, so a lot of this is one person's portfolio, not all of Congress.`,
+].filter(Boolean).join(" ");
+$("tiles").innerHTML = [
+  ["", c.stock_trades, "stock trades"], ["buy", c.buys, "buys"], ["sell", c.sells, "sells"],
+  ["", c.filers, "lawmakers"], ["late", c.late_filings, "filed after 45 days"],
+  ["ok", verified, "official ✓"], ["late", review.length, "filings to read by hand"],
+].map(([k, v, l]) => `<div class="tile ${k}"><span class="v">${v}</span><span class="k">${l}</span></div>`).join("");
+
+function tipFor(host) {
+  const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; host.appendChild(tip);
+  return {
+    show(html, ev) {
+      tip.innerHTML = html; tip.hidden = false;
+      const r = host.getBoundingClientRect();
+      let x = ev.clientX - r.left + host.scrollLeft + 14, y = ev.clientY - r.top + 14;
+      if (x + 290 > host.scrollLeft + r.width) x = Math.max(4, x - 300);
+      tip.style.left = x + "px"; tip.style.top = y + "px";
+    },
+    hide() { tip.hidden = true; },
+  };
+}
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  parent?.appendChild(e);
+  return e;
+}
+function niceMax(v) { const p = 10 ** Math.floor(Math.log10(v)); return Math.ceil(v / p) * p; }
+
+// Diverging bar chart: sell to the left of zero, buy to the right.
+function diverging(host, rows, { label, buy, sell, fmt, tip, labelW = 150, W = 760 }) {
+  const rowH = 28, top = 26, H = top + rows.length * rowH + 8;
+  const max = niceMax(Math.max(...rows.map((r) => Math.max(buy(r), sell(r)))));
+  const left = labelW + 8, plot = W - left - 16, mid = left + plot / 2, sx = (v) => (v / max) * (plot / 2);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": host.closest("section").querySelector("h2").textContent });
+  svg.style.minWidth = W < 600 ? "340px" : "520px";
+  for (const f of [-1, -0.5, 0.5, 1]) {
+    const x = mid + f * plot / 2;
+    el("line", { x1: x, x2: x, y1: top - 6, y2: H - 6, class: "gridl" }, svg);
+    el("text", { x, y: 14, "text-anchor": "middle", class: "tick num" }, svg, fmt(Math.abs(f) * max));
+  }
+    const t = tipFor(host);
+  rows.forEach((r, i) => {
+    const y = top + i * rowH, bh = 16, by = y + (rowH - bh) / 2;
+    const b = buy(r), s = sell(r);
+    if (s > 0) el("path", { d: barPath(mid - sx(s) - 1, by, sx(s), bh, "left"), fill: "var(--sell)" }, svg);
+    if (b > 0) el("path", { d: barPath(mid + 1, by, sx(b), bh, "right"), fill: "var(--buy)" }, svg);
+    el("text", { x: labelW, y: y + rowH / 2 + 4, "text-anchor": "end", class: "lbl" }, svg, label(r));
+    const hit = el("rect", { x: 0, y, width: W, height: rowH, class: "hit" }, svg);
+    hit.addEventListener("mousemove", (ev) => t.show(tip(r), ev));
+    hit.addEventListener("mouseleave", () => t.hide());
+  });
+  el("line", { x1: mid, x2: mid, y1: top - 4, y2: H - 6, class: "axis0" }, svg);
+  host.appendChild(svg);
+}
+function barPath(x, y, w, h, side) {
+  const r = Math.min(4, w / 2, h / 2);
+  if (w <= 0) return "";
+  return side === "right"
+    ? `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`
+    : `M${x + w},${y}H${x + r}Q${x},${y} ${x},${y + r}V${y + h - r}Q${x},${y + h} ${x + r},${y + h}H${x + w}Z`;
+}
+const names = (a) => a.length ? a.map(esc).join(", ") : "none";
+
+const coRows = [...S.tickers].sort((a, b) => (b.buy_est + b.sell_est) - (a.buy_est + a.sell_est)).slice(0, 14);
+diverging($("c-co"), coRows, {
+  label: (r) => r.ticker, buy: (r) => r.buy_est, sell: (r) => r.sell_est, fmt: usd, labelW: 70,
+  tip: (r) => `<b>${esc(r.name)}</b> (${esc(r.ticker)}) · ${esc(r.sector)}<br>Bought about ${usd(r.buy_est)} · by ${names(r.buyers)}<br>Sold about ${usd(r.sell_est)} · by ${names(r.sellers)}`,
+});
+diverging($("c-sec"), S.sectors.filter((s) => s.sector !== "Other"), {
+  label: (r) => r.sector, buy: (r) => r.buy_est, sell: (r) => r.sell_est, fmt: usd, labelW: 96, W: 460,
+  tip: (r) => `<b>${esc(r.sector)}</b><br>Bought about ${usd(r.buy_est)}<br>Sold about ${usd(r.sell_est)}`,
+});
+const partyName = { D: "Democrats", R: "Republicans", I: "Independents" };
+diverging($("c-party"), Object.entries(S.by_party).filter(([p]) => partyName[p]).map(([p, v]) => ({ p, ...v })), {
+  label: (r) => partyName[r.p], buy: (r) => r.buys, sell: (r) => r.sells, fmt: (n) => String(Math.round(n)), labelW: 96, W: 460,
+  tip: (r) => `<b>${partyName[r.p]}</b><br>${r.buys} buys · ${r.sells} sells`,
+});
+
+// Filing lag histogram.
+(() => {
+  const host = $("c-lag"), bins = [["0–15", 0, 15], ["16–30", 16, 30], ["31–45", 31, 45], ["46+ (late)", 46, 9999]];
+  const counts = bins.map(([l, a, b]) => ({ l, n: DATA.trades.filter((t) => t.filing_lag_days >= a && t.filing_lag_days <= b).length, late: a >= 46 }));
+  const W = 460, H = 220, left = 40, bottom = 28, top = 14, plotH = H - top - bottom, bw = (W - left - 16) / counts.length;
+  const max = niceMax(Math.max(...counts.map((x) => x.n)));
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Days between the trade and the filing" });
+  svg.style.minWidth = "340px";
+  for (const f of [0, 0.5, 1]) {
+    const y = top + plotH - f * plotH;
+    el("line", { x1: left, x2: W - 12, y1: y, y2: y, class: f === 0 ? "axis0" : "gridl" }, svg);
+    el("text", { x: left - 6, y: y + 4, "text-anchor": "end", class: "tick num" }, svg, Math.round(f * max));
+  }
+  const t = tipFor(host);
+  counts.forEach((b, i) => {
+    const h = (b.n / max) * plotH, x = left + i * bw + 10, w = bw - 20, y = top + plotH - h;
+    el("path", { d: `M${x},${top + plotH}V${y + 4}Q${x},${y} ${x + 4},${y}H${x + w - 4}Q${x + w},${y} ${x + w},${y + 4}V${top + plotH}Z`, fill: b.late ? "var(--warn)" : "var(--accent)" }, svg);
+    el("text", { x: x + w / 2, y: y - 6, "text-anchor": "middle", class: "lbl num" }, svg, b.n);
+    el("text", { x: x + w / 2, y: H - 8, "text-anchor": "middle", class: "tick" }, svg, b.l + " days");
+    const hit = el("rect", { x: x - 6, y: top, width: w + 12, height: plotH, class: "hit" }, svg);
+    hit.addEventListener("mousemove", (ev) => t.show(`<b>${b.l} days</b><br>${b.n} rows`, ev));
+    hit.addEventListener("mouseleave", () => t.hide());
+  });
+  host.appendChild(svg);
+})();
+
+$("clusters").innerHTML = S.clusters.map((r) => {
+  const verdict = r.buyers.length && r.sellers.length ? `<span class="pill party">Mixed</span>` : r.buyers.length ? `<span class="pill buy">Bought ↑</span>` : `<span class="pill sell">Sold ↓</span>`;
+  return `<div class="cl"><div class="t"><span class="mono">${esc(r.ticker)}</span>${verdict}</div><span>${esc(r.name)}</span>
+    <span class="who"><b>Bought by:</b> ${names(r.buyers)}</span><span class="who"><b>Sold by:</b> ${names(r.sellers)}</span></div>`;
+}).join("");
+
+const example = DATA.trades.find((t) => t.asset_type === "Stock" && t.direction === "Buy" && t.source_status === "verified")
+  || DATA.trades.find((t) => t.asset_type === "Stock" && t.direction === "Buy") || DATA.trades[0];
+if (example) $("why-trade").innerHTML = `${esc(example.filer)} bought <span class="mono">${esc(example.ticker)}</span> (${esc(example.asset_name)}), ${range(example)}, traded ${fmtDate(example.trade_date)}, filed ${fmtDate(example.filing_date)}`;
+
+$("review-box").hidden = !review.length;
+$("review").innerHTML = review.map((r) => `<tr><td class="num">${fmtDate(r.filing_date)}</td><td>${esc(r.filer)}</td><td>${esc(r.reason)}</td>
+  <td><a href="${esc(r.filing_url)}" target="_blank" rel="noopener">${esc(r.filing_id)}${r.record ? ` (row ${r.record})` : ""}</a></td></tr>`).join("");
+
+$("filers").innerHTML = S.filers.map((f) => `<tr><td>${esc(f.filer)}</td><td>${f.party ? `<span class="pill party">${f.party}</span>` : "?"}</td><td>${esc(f.chamber ?? "?")}</td>
+  <td class="r num">${f.buys}</td><td class="r num">${f.sells}</td><td class="r num">${usd(f.buy_est)}</td><td class="r num">${usd(f.sell_est)}</td><td class="r num">${f.non_stock_rows}</td></tr>`).join("");
+
+function renderRows() {
+  const q = $("f-q").value.trim().toLowerCase(), p = $("f-party").value, d = $("f-dir").value, ty = $("f-type").value, src = $("f-src").value;
+  const list = DATA.trades.filter((t) => (!q || (t.ticker || "").toLowerCase().includes(q) || t.asset_name.toLowerCase().includes(q) || t.filer.toLowerCase().includes(q))
+    && (!p || t.party === p) && (!d || t.direction === d) && (!ty || t.asset_type === ty)
+    && (!src || (src === "verified") === (t.source_status === "verified")));
+  $("f-count").textContent = `${list.length} of ${DATA.trades.length} rows`;
+  $("rows").innerHTML = list.map((t) => {
+    const dir = t.direction === "Buy" ? `<span class="pill buy">Buy ↑</span>` : t.direction === "Sell" ? `<span class="pill sell">Sell ↓</span>` : `<span class="pill party">${esc(t.direction)}</span>`;
+    const label = (f) => f.startsWith("needs_review") ? "check ticker" : f.startsWith("filed") ? "late" : f.startsWith("open") ? "open range"
+      : f.startsWith("party/") ? "no party" : f.startsWith("filing status") ? "correction" : "note";
+    const flags = t.flags.map((f) => `<span class="pill warn" title="${esc(f)}">${esc(label(f))}</span>`).join(" ");
+    const checked = t.source_status === "verified"
+      ? `<a class="pill ok" href="${esc(t.filing_url)}" target="_blank" rel="noopener" title="Open the official filing">Official ✓</a>`
+      : `<span class="pill warn" title="From ${esc(t.source)}; not matched to an official filing">Not checked</span>`;
+    return `<tr><td class="num">${fmtDate(t.filing_date)}</td><td class="num">${fmtDate(t.trade_date)}</td><td class="r num">${t.filing_lag_days}d</td><td>${esc(t.filer)}${t.party ? ` <span class="pill party">${t.party}</span>` : ""}${t.chamber ? ` <span class="pill party">${esc(t.chamber)}</span>` : ""}</td>
+      <td class="mono">${esc(t.ticker ?? "—")}</td><td class="name">${esc(t.asset_name)}</td><td>${dir}</td><td class="num">${range(t)}</td><td>${checked}</td><td>${flags}</td></tr>`;
+  }).join("");
+}
+for (const id of ["f-q", "f-party", "f-dir", "f-type", "f-src"]) $(id).addEventListener("input", renderRows);
+renderRows();
+</script>

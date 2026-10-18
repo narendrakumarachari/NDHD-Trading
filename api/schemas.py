@@ -165,6 +165,219 @@ class AlertOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Congressional trade disclosures (research / advisory only)
+# ---------------------------------------------------------------------------
+
+class CongressTradeOut(BaseModel):
+    filer: str
+    party: Optional[str] = None
+    chamber: Optional[str] = None
+    ticker: Optional[str] = None
+    asset_name: str
+    direction: str
+    transaction_type: Optional[str] = None
+    owner: Optional[str] = None
+    trade_date: str
+    filing_date: str
+    filing_lag_days: int
+    amount_low: int
+    amount_high: Optional[int] = None
+    amount_mid_estimate: int = Field(description="Range midpoint. An estimate, never a share count.")
+    source_status: str
+    filing_url: Optional[str] = None
+    lots: int = Field(default=1, description="Identical separately-filed lots shown as one row.")
+
+
+class CongressCluster(BaseModel):
+    direction: str
+    filers: List[str]
+
+
+class CongressSymbolOut(BaseModel):
+    symbol: str
+    roles: List[str] = Field(description="Why it is listed: 'stock strategy', 'wheel', 'held'.")
+    engine_alert: bool = Field(description="True when the engine's advisory rule fires for this symbol today.")
+    reason: str = Field(description="Plain-language reason the rule did or didn't fire.")
+    headline: Optional[str] = None
+    cluster: Optional[CongressCluster] = None
+    window_buyers: int = Field(description="Distinct lawmakers buying it in the window (official filings).")
+    window_sellers: int = Field(description="Distinct lawmakers selling it in the window (official filings).")
+    verified_trades: List[CongressTradeOut]
+    unverified_count: int
+
+
+class CongressRuleClusterOut(BaseModel):
+    ticker: str
+    direction: str
+    filers: List[str]
+    headline: str
+
+
+class CongressActivityOut(BaseModel):
+    ticker: str
+    name: str
+    sector: str
+    buyers: List[str]
+    sellers: List[str]
+    trades: int
+    buy_est: int
+    sell_est: int
+    latest_filing: str
+
+
+class CongressReviewOut(BaseModel):
+    filing_id: str
+    filer: str
+    filing_date: str
+    filing_url: str
+    reason: str
+    record: Optional[int] = None
+
+
+class EngineStatusOut(BaseModel):
+    running: bool = Field(description="True when the engine's heartbeat is recent (a few poll cycles).")
+    seen_at: Optional[str] = None
+    congress_context_enabled: Optional[bool] = Field(
+        default=None, description="The running engine's own setting, from its heartbeat; None if not running.")
+    paper: Optional[bool] = None
+
+
+class CongressStoreOut(BaseModel):
+    filings_total: int = Field(description="Every House filing pulled so far (cumulative), not just the window.")
+    first_filing_date: Optional[str] = None
+    last_filing_date: Optional[str] = None
+    last_pull_at: Optional[str] = None
+    last_pull_new_filings: int = 0
+
+
+class CongressRefreshOut(BaseModel):
+    state: str = Field(description="'idle' | 'running' | 'done' | 'error'")
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    message: str
+    log: List[str]
+    result: Optional[Dict[str, Any]] = None
+
+
+class CongressOut(BaseModel):
+    status: str = Field(description="'ok' | 'stale' | 'missing' | 'unreadable'")
+    message: Optional[str] = None
+    data_file: str
+    as_of: Optional[str] = None
+    window_days: Optional[int] = None
+    business_days_old: Optional[int] = None
+    stale: bool
+    engine_flag_in_env: bool = Field(
+        description="CONGRESS_CONTEXT_ENABLED as this API process reads it (.env). A running engine "
+                    "started with a different environment may differ.")
+    engine: EngineStatusOut
+    counts: Dict[str, int]
+    by_party: Dict[str, Dict[str, int]]
+    your_symbols: List[CongressSymbolOut]
+    engine_rule_clusters: List[CongressRuleClusterOut]
+    most_active: List[CongressActivityOut]
+    recent_verified: List[CongressTradeOut]
+    needs_review: List[CongressReviewOut]
+    ledger_available: bool
+    store: Optional[CongressStoreOut] = None
+    note: str
+
+
+# ---------------------------------------------------------------------------
+# Robinhood snapshot (human research only; read-only)
+# ---------------------------------------------------------------------------
+
+class RobinhoodAccountOut(BaseModel):
+    label: str
+    last4: str = Field(description="Only the last four digits are ever stored or shown.")
+    kind: Optional[str] = None
+    managed: Optional[bool] = None
+    default: Optional[bool] = None
+    agent_can_trade: Optional[bool] = None
+    trade_approvals_required: Optional[bool] = None
+    total_value: float
+    cash: Optional[float] = None
+    pending_deposits: Optional[float] = None
+    buying_power: Optional[float] = None
+
+
+class RobinhoodHoldingOut(BaseModel):
+    symbol: str
+    quantity: float
+    avg_cost: Optional[float] = None
+    price: float
+    value: float
+    cost: float
+    pl: float
+    pl_pct: Optional[float] = None
+    weight_pct: Optional[float] = Field(default=None, description="Share of the account's total value.")
+    next_earnings: Optional[str] = None
+    earnings_timing: Optional[str] = None
+    earnings_confirmed: Optional[bool] = None
+    days_to_earnings: Optional[int] = None
+
+
+class RobinhoodCallOut(BaseModel):
+    symbol: str
+    contracts: int
+    strike: float
+    expiration: str
+    premium: float
+    covered: bool
+    strike_above_cost: bool
+    strike_above_price_pct: Optional[float] = None
+
+
+class RobinhoodOrderOut(BaseModel):
+    asset: str
+    kind: str
+    side: str
+    type: str
+    quantity: float
+    limit_price: float
+    price: Optional[float] = None
+    placed: Optional[str] = None
+    age_days: Optional[int] = None
+    limit_vs_price_pct: Optional[float] = None
+
+
+class RobinhoodRuleCheckOut(BaseModel):
+    rule: str
+    detail: str
+    unit: str = Field(description="'%' or 'count'")
+    limit: float
+    actual: Optional[float] = None
+    ok: bool
+
+
+class RobinhoodSuggestionOut(BaseModel):
+    tone: str = Field(description="'bad' | 'warn' | 'info'")
+    title: str
+    detail: str
+    who: str
+
+
+class RobinhoodOut(BaseModel):
+    status: str = Field(description="'ok' | 'missing' | 'unreadable'")
+    message: Optional[str] = None
+    data_file: str
+    taken_at: Optional[str] = None
+    age_days: Optional[int] = None
+    stale: bool
+    prices_note: Optional[str] = None
+    accounts: List[RobinhoodAccountOut]
+    main: Optional[RobinhoodAccountOut] = None
+    totals: Dict[str, Any]
+    stocks: List[RobinhoodHoldingOut]
+    crypto: List[RobinhoodHoldingOut]
+    covered_calls: List[RobinhoodCallOut]
+    open_orders: List[RobinhoodOrderOut]
+    rule_checks: List[RobinhoodRuleCheckOut]
+    suggestions: List[RobinhoodSuggestionOut]
+    note: str
+
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
