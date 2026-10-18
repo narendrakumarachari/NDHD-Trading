@@ -8,6 +8,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # pydantic pins pydantic-core exactly (2.13.5 needs 2.46.5). A bump of
+      # pydantic-core alone can never install (PR #2 broke main's CI). Move it
+      # by bumping pydantic and regenerating both locks.
+      - dependency-name: "pydantic-core"
 
   # The dashboard's TypeScript toolchain (web/package.json, exact pins + lockfile).
   # Keep @types/react on 18.x while index.html loads React 18.3.1.
