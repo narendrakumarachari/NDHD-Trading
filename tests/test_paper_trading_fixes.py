@@ -69,6 +69,14 @@ class OrdersEnabledTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             pe.PortfolioEngine.validate_config(engine)
 
+    def test_validate_rejects_ticker_in_both_strategies(self):
+        engine = SimpleNamespace(config=cfg(stock_tickers=["AAPL", "WMT"], wheel_tickers=["WMT"]))
+        with self.assertRaises(ValueError):
+            pe.PortfolioEngine.validate_config(engine)
+        pe.PortfolioEngine.validate_config(
+            SimpleNamespace(config=cfg(stock_tickers=["AAPL"], wheel_tickers=["WMT"]))
+        )
+
 
 class OccTest(unittest.TestCase):
     def test_parse(self):

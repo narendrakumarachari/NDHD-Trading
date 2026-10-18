@@ -4726,6 +4726,14 @@ class PortfolioEngine:
                 "never sends orders to a real-money account."
             )
 
+        overlap = set(self.config.stock_tickers) & set(self.config.wheel_tickers)
+        if overlap:
+            raise ValueError(
+                f"{sorted(overlap)} in both STOCK_TICKERS and WHEEL_TICKERS. "
+                "The stock strategy would treat assigned Wheel shares as its "
+                "own position (stops, trims); list each ticker in one only."
+            )
+
         if self.config.wheel_max_total_collateral_pct < self.config.wheel_max_collateral_pct:
             raise ValueError(
                 "WHEEL_MAX_TOTAL_COLLATERAL_PCT must be >= "
