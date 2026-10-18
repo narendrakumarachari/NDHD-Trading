@@ -46,6 +46,7 @@ venv.bak/
 # State files
 *.json
 wheel_state.json
+wheel_state.json.renamed-*
 portfolio_engine_state.json
 
 # Runtime lock file (api/deps.py's ProcessLock)

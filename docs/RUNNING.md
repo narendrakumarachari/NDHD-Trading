@@ -127,6 +127,18 @@ access for your laptop and phone if Tailscale is set up
 `-NoEngine`, `-NoTailscale`, `-NoBrowser`. For 24/7 on a free server, see
 [SERVER.md](SERVER.md).
 
+When nothing is running yet (for example after a restart), it first does
+upkeep: it updates `.venv` to match `requirements.lock.txt`
+(`scripts\lock_check.py` finds the differences), and, once, moves an engine
+state file still named `wheel_state.json` to `portfolio_engine_state.json`
+and updates `STATE_FILE` in `.env`. The old file is kept as
+`wheel_state.json.renamed-<date>`.
+
+**Start at sign-in:** `.\scripts\install-autostart.ps1` adds a Task Scheduler
+task (your user only, no admin) that runs the start script 30 seconds after
+you sign in to Windows, logging to `logs\start-ndhd.log`. Undo with
+`.\scripts\install-autostart.ps1 -Remove`.
+
 By hand: use **two PowerShell windows**, both at the repository root with the venv
 activated (`.\.venv\Scripts\Activate.ps1`).
 

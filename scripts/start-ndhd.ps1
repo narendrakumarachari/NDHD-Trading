@@ -12,8 +12,13 @@
     DASHBOARD_API_KEY to be set. It never uses Tailscale Funnel (public).
   - Never touches the kill switch, risk limits or any .env value.
 
+  - Only when nothing is running yet (e.g. after a restart), it first does
+    upkeep: renames the engine's state file away from the old engine's
+    default name (once), and updates .venv to match requirements.lock.txt.
+
   Each part runs in its own minimized window titled "NDHD dashboard" or
   "NDHD engine". To stop one, open its window and press Ctrl+C.
+  scripts\install-autostart.ps1 runs this at every Windows sign-in.
 
 .EXAMPLE
   .\scripts\start-ndhd.ps1
@@ -24,11 +29,16 @@ param(
     [switch]$NoEngine,      # start only the dashboard
     [switch]$NoTailscale,   # skip private remote access
     [switch]$NoBrowser,     # don't open the dashboard in the browser
+    [switch]$AtLogon,       # run by the sign-in task: log to logs\start-ndhd.log, wait for Tailscale
     [int]$Port = 8000
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+if ($AtLogon) {
+    New-Item -ItemType Directory -Force (Join-Path $root 'logs') | Out-Null
+    Start-Transcript -Append -Path (Join-Path $root 'logs\start-ndhd.log') | Out-Null
+}
 $python = Join-Path $root '.venv\Scripts\python.exe'
 $port = $Port
 $local = "http://127.0.0.1:$port/"
@@ -48,8 +58,64 @@ if ($envState.live_trading -or -not $envState.paper) {
 }
 Say "Safety check: paper trading on, live trading off." Green
 
-# --- 2. Dashboard (backend + frontend), localhost only
 function Test-Listening { [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) }
+function Get-Engine {
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+        Where-Object { $_.CommandLine -like '*portfolio_engine.py*' }
+}
+
+# --- 1b. Upkeep, only while nothing is running (files and packages aren't in use)
+# The engine's state file (positions, wheel phases, kill switch date) used the
+# old engine's default name, wheel_state.json, so running alpaca_wheel_strategy.py
+# could overwrite it. Move it to portfolio_engine_state.json, once.
+function Rename-StateFile {
+    $envFile = Join-Path $root '.env'
+    $lines = @(Get-Content $envFile)
+    $oldLine = '^\s*STATE_FILE\s*=\s*["'']?wheel_state\.json["'']?\s*$'
+    if (-not ($lines -match $oldLine)) { return }
+    $old = Join-Path $root 'wheel_state.json'
+    $new = Join-Path $root 'portfolio_engine_state.json'
+    if (Test-Path $new) {
+        Say "State file: not renamed, because portfolio_engine_state.json already exists. Compare it with wheel_state.json by hand." Yellow
+        return
+    }
+    if (Test-Path $old) {
+        $state = Get-Content $old -Raw | ConvertFrom-Json
+        if (-not ($state.PSObject.Properties.Name -contains 'stocks')) {
+            Say "State file: not renamed, because wheel_state.json isn't in the portfolio engine's format." Yellow
+            return
+        }
+        Copy-Item $old $new
+        if ((Get-FileHash $old).Hash -ne (Get-FileHash $new).Hash) { Remove-Item $new; throw "copy of wheel_state.json didn't match" }
+    }
+    $out = $lines | ForEach-Object { if ($_ -match $oldLine) { 'STATE_FILE=portfolio_engine_state.json' } else { $_ } }
+    [IO.File]::WriteAllLines($envFile, [string[]]$out, (New-Object Text.UTF8Encoding($false)))
+    if (Test-Path $old) {
+        $backup = "wheel_state.json.renamed-$(Get-Date -Format yyyyMMdd)"
+        Rename-Item $old $backup
+        Say "State file: now portfolio_engine_state.json (same contents, kill switch date kept; old copy: $backup)." Green
+    } else {
+        Say "State file: .env now uses portfolio_engine_state.json." Green
+    }
+}
+
+function Update-Packages {
+    $stale = @(& $python (Join-Path $root 'scripts\lock_check.py'))
+    if ($LASTEXITCODE -eq 0) { Say "Packages: match the lock."; return }
+    Say "Packages: updating $($stale.Count) to match the lock: $($stale -join '; ')"
+    & $python -m pip install --quiet --disable-pip-version-check --require-hashes -r (Join-Path $root 'requirements.lock.txt')
+    if ($LASTEXITCODE -eq 0) { Say "Packages: updated." Green }
+    else { Say "Packages: update failed (exit $LASTEXITCODE); starting with the installed ones. See docs\RUNNING.md, step 1.1." Yellow }
+}
+
+if ((Test-Listening) -or (Get-Engine)) {
+    Say "Upkeep: skipped while NDHD is running; it runs at the next start from a stopped state."
+} else {
+    try { Rename-StateFile } catch { Say "State file: not renamed ($($_.Exception.Message)); the engine keeps using the old name." Yellow }
+    try { Update-Packages } catch { Say "Packages: check failed ($($_.Exception.Message)); starting with the installed ones." Yellow }
+}
+
+# --- 2. Dashboard (backend + frontend), localhost only
 if (Test-Listening) {
     Say "Dashboard: already running on port $port."
 } else {
@@ -63,8 +129,7 @@ if (Test-Listening) {
 }
 
 # --- 3. Trading engine (paper)
-$engine = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-    Where-Object { $_.CommandLine -like '*portfolio_engine.py*' }
+$engine = Get-Engine
 if ($NoEngine) {
     Say "Engine: skipped (-NoEngine)."
 } elseif ($engine) {
@@ -86,6 +151,11 @@ if (-not $NoTailscale) {
         Say "Tailscale: skipped. Set DASHBOARD_API_KEY in .env first (docs\REMOTE_ACCESS.md, step 2), then run this again." Yellow
     } else {
         $status = & $ts status --json 2>$null | ConvertFrom-Json
+        # Right after sign-in Tailscale may still be connecting; give it a minute.
+        for ($i = 0; $AtLogon -and $status.BackendState -ne 'Running' -and $i -lt 12; $i++) {
+            Start-Sleep -Seconds 5
+            $status = & $ts status --json 2>$null | ConvertFrom-Json
+        }
         if ($status.BackendState -ne 'Running') {
             Say "Tailscale: not signed in. Click the Tailscale icon by the clock and log in, then run this again." Yellow
         } elseif (-not $status.CertDomains) {
