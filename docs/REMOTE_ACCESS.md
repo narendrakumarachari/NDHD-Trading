@@ -50,12 +50,15 @@ them for the padlock). You can also do it later in the admin console:
 Tailscale decides **who can reach** the dashboard; the API key is a second
 lock on the dashboard itself. Remote access is refused without it.
 
-From the repository root (this writes a random key into `.env` and prints
-nothing):
+From the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import secrets; open('.env','a').write('\nDASHBOARD_API_KEY=' + secrets.token_urlsafe(32) + '\n')"
+.\scripts\new-api-key.ps1
 ```
+
+It writes a random 43-character key into `.env`, copies it to your
+clipboard, and never shows it on screen. If a key already exists it changes
+nothing; `-Replace` makes a new one (do that if a device is lost).
 
 Restart the dashboard so it reads the key (Ctrl+C in its window, then
 `.\scripts\start-ndhd.ps1`). Then, **on every browser you use, including this
