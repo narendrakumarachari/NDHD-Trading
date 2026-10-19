@@ -36,7 +36,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import deps, logs, ws
-from .routers import alerts, congress, control, market, risk, robinhood, strategy
+from .routers import alerts, congress, control, market, risk, robinhood, strategy, watch
 
 LOGGER = logging.getLogger("dashboard-api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -98,6 +98,7 @@ app.include_router(control.router)
 app.include_router(congress.router)
 app.include_router(congress.ledger_router)
 app.include_router(robinhood.router)
+app.include_router(watch.router)
 
 
 @app.get("/api/health", tags=["health"])

@@ -37,7 +37,7 @@ jobs:
         run: python -m unittest discover -s tests -t . -v
 
       - name: Compile the dashboard API
-        run: python -m py_compile api/main.py api/schemas.py api/routers/congress.py api/routers/robinhood.py
+        run: python -m py_compile api/main.py api/schemas.py api/routers/congress.py api/routers/robinhood.py api/routers/watch.py
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

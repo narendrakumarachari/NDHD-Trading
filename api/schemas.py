@@ -471,3 +471,45 @@ class ManualOrderResponse(BaseModel):
     status: Optional[str] = None
     dry_run: bool = False
     risk_check_passed: Optional[bool] = None
+
+
+# ---------------------------------------------------------------------------
+# Watch-only list (GET /api/watch): signals for WATCH_TICKERS, never traded
+# ---------------------------------------------------------------------------
+
+class WatchRowOut(BaseModel):
+    symbol: str
+    error: Optional[str] = None
+    price: Optional[float] = None
+    as_of: Optional[str] = None
+    change_pct: Optional[float] = None
+    trend: Optional[str] = Field(default=None, description="'up' when EMA fast > EMA slow")
+    ema_fast: Optional[float] = None
+    ema_slow: Optional[float] = None
+    adx: Optional[float] = None
+    trending: Optional[bool] = None
+    signal: Optional[str] = Field(default=None, description="'LONG' | 'SHORT' | 'NONE' on the latest bar")
+    crossover_ignored: Optional[bool] = None
+    bars_since_cross: Optional[int] = None
+    atr_pct: Optional[float] = None
+    year_high: Optional[float] = None
+    year_low: Optional[float] = None
+    from_high_pct: Optional[float] = None
+    from_low_pct: Optional[float] = None
+    next_earnings: Optional[str] = None
+    days_to_earnings: Optional[int] = None
+    earnings_blackout: Optional[bool] = None
+    below_min_price: Optional[bool] = None
+    held_qty: Optional[float] = None
+    avg_cost: Optional[float] = None
+    vs_cost_pct: Optional[float] = None
+    also_traded: bool = False
+
+
+class WatchOut(BaseModel):
+    tickers: List[str]
+    rows: List[WatchRowOut]
+    computed_at: Optional[str] = None
+    min_stock_price: Optional[float] = None
+    adx_min_strength: Optional[float] = None
+    note: str
