@@ -45,7 +45,12 @@ env_state="$(.venv/bin/python scripts/env_check.py)"
 echo "$env_state" | grep -q '"live_trading": false' || die "LIVE_TRADING is on in .env. This server setup is for paper trading only."
 echo "$env_state" | grep -q '"paper": true' || die "ALPACA_PAPER is not true in .env."
 echo "$env_state" | grep -q '"api_key_set": true' || die "set DASHBOARD_API_KEY in .env first (docs/REMOTE_ACCESS.md, step 2)."
-echo "Safety check: paper trading on, live trading off, API key set."
+if echo "$env_state" | grep -q '"paper_orders": true'; then
+  ORDERS_NOTE="PAPER_ORDERS=true: orders go to the Alpaca paper account (simulated money)"
+else
+  ORDERS_NOTE="dry run: orders are only logged, nothing is sent"
+fi
+echo "Safety check: paper account only, live trading off, API key set. $ORDERS_NOTE."
 
 step "3/6 Build the dashboard (Node $NODE_VERSION, checksum-verified)"
 case "$(uname -m)" in
@@ -67,6 +72,7 @@ fi
 step "4/6 Tests"
 .venv/bin/python -m unittest discover -s congress_trades -t .
 .venv/bin/python -m unittest discover -s robinhood_view -t .
+.venv/bin/python -m unittest discover -s tests -t .
 
 step "5/6 Services that restart on crash and on reboot"
 install_unit() {
@@ -97,11 +103,16 @@ if ! command -v tailscale >/dev/null; then
 fi
 if ! tailscale status >/dev/null 2>&1; then
   echo "Sign this server in to your tailnet: open the link printed below in a browser."
-  sudo tailscale up
+  sudo tailscale up --hostname=ndhd-server
+  echo "Then, in https://login.tailscale.com/admin/machines: ndhd-server > ... > Disable key expiry,"
+  echo "or the server drops off your tailnet in about 6 months."
 fi
 sudo tailscale serve --bg 8000 >/dev/null
 url="https://$(tailscale status --json | .venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')/"
 
 printf '\nDone.\n  Dashboard (your devices only): %s\n' "$url"
 printf '  Status:  systemctl status ndhd-api ndhd-engine\n  Logs:    journalctl -u ndhd-engine -f\n'
-printf '  Engine:  %s\n' "$([[ "$WITH_ENGINE" == 1 ]] && echo 'running in paper mode (places paper orders while the market is open)' || echo 'not started (--no-engine)')"
+printf '  Engine:  %s\n' "$([[ "$WITH_ENGINE" == 1 ]] && echo "running; $ORDERS_NOTE" || echo 'not started (--no-engine)')"
+if [[ "$WITH_ENGINE" == 1 ]]; then
+  printf '  Only one engine may trade the account: on your PC run  .\\scripts\\switch-to-server.ps1\n'
+fi
