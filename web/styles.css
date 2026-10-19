@@ -547,3 +547,9 @@ footer.hint {
 .robinhood .grid-2 { margin-top: 4px; }
 .robinhood td .pill { margin-left: 6px; }
 .rh-suggestions { max-height: none; }
+
+/* Watch list: wide table scrolls inside its card on a phone. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll table { min-width: 720px; }
+#watch td .pill { margin-left: 6px; }
+#watch code { font-size: 12px; }

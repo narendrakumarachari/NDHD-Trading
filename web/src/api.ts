@@ -2,7 +2,7 @@
 // Thin REST client + WebSocket hook for the dashboard API (api/main.py).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Alert, CongressPull, CongressView, LiveData, LiveMessage, RobinhoodView, Settings } from "./types.js";
+import type { Alert, CongressPull, CongressView, LiveData, LiveMessage, RobinhoodView, Settings, WatchView } from "./types.js";
 
 const SETTINGS_KEY = "ndhd_dashboard_settings_v1";
 
@@ -281,4 +281,35 @@ export function useRobinhood(settings: Settings) {
   }, [load]);
 
   return { view, error, reload: load };
+}
+
+/**
+ * The watch-only list, loaded when the page opens and on "Refresh". The API
+ * caches it for 10 minutes; refresh=true recomputes now.
+ */
+export function useWatch(settings: Settings) {
+  const [view, setView] = useState<WatchView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(
+    async (refresh = false) => {
+      setLoading(true);
+      try {
+        setView(await apiFetch<WatchView>(settings, `/api/watch${refresh ? "?refresh=true" : ""}`));
+        setError(null);
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : String(exc));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [settings.apiBase, settings.apiKey],
+  );
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { view, error, loading, reload: () => load(true) };
 }

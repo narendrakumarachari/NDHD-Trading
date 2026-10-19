@@ -165,6 +165,13 @@ class Config:
             "STOCK_TICKERS", "AAPL,MSFT"
         )
     )
+    # Watch-only: the dashboard shows the stock strategy's signals for
+    # these; nothing ever trades them (the engine never reads this list).
+    watch_tickers: List[str] = field(
+        default_factory=lambda: csv_env(
+            "WATCH_TICKERS", ""
+        )
+    )
     stock_direction: str = os.getenv(
         "STOCK_DIRECTION", "long"
     ).lower()

@@ -414,3 +414,43 @@ export interface RobinhoodView {
   suggestions: RobinhoodSuggestion[];
   note: string;
 }
+
+
+// Watch-only list (GET /api/watch): signals for WATCH_TICKERS, never traded.
+export interface WatchRow {
+  symbol: string;
+  error: string | null;
+  price: number | null;
+  as_of: string | null;
+  change_pct: number | null;
+  trend: "up" | "down" | null;
+  ema_fast: number | null;
+  ema_slow: number | null;
+  adx: number | null;
+  trending: boolean | null;
+  signal: "LONG" | "SHORT" | "NONE" | null;
+  crossover_ignored: boolean | null;
+  bars_since_cross: number | null;
+  atr_pct: number | null;
+  year_high: number | null;
+  year_low: number | null;
+  from_high_pct: number | null;
+  from_low_pct: number | null;
+  next_earnings: string | null;
+  days_to_earnings: number | null;
+  earnings_blackout: boolean | null;
+  below_min_price: boolean | null;
+  held_qty: number | null;
+  avg_cost: number | null;
+  vs_cost_pct: number | null;
+  also_traded: boolean;
+}
+
+export interface WatchView {
+  tickers: string[];
+  rows: WatchRow[];
+  computed_at: string | null;
+  min_stock_price: number | null;
+  adx_min_strength: number | null;
+  note: string;
+}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { apiFetch, loadSettings, saveSettings, useCongress, useLiveData, useRobinhood } from "./api.js";
+import { apiFetch, loadSettings, saveSettings, useCongress, useLiveData, useRobinhood, useWatch } from "./api.js";
 import type { Alert, CongressSymbol, ManualOrderRequest, ManualOrderResult, Settings } from "./types.js";
 
 import { AlertsFeed, ToastStack } from "./components/Alerts.js";
@@ -13,6 +13,7 @@ import { RobinhoodPanel } from "./components/RobinhoodPanel.js";
 import { StockPanel, WheelPanel } from "./components/StrategyPanels.js";
 import { OrdersTable, PositionsTable } from "./components/Tables.js";
 import { TopBar } from "./components/TopBar.js";
+import { WatchPanel } from "./components/WatchPanel.js";
 
 const MAX_EQUITY_POINTS = 180;
 
@@ -25,6 +26,8 @@ function App() {
   const congress = useCongress(settings);
   // Robinhood snapshot: read once, and again when "Reload" is clicked.
   const robinhood = useRobinhood(settings);
+  // Watch-only signals: on open and on "Refresh" (the API caches 10 min).
+  const watch = useWatch(settings);
   const congressBySymbol = useMemo(() => {
     const map: Record<string, CongressSymbol> = {};
     for (const s of congress.view?.your_symbols ?? []) map[s.symbol] = s;
@@ -180,6 +183,9 @@ function App() {
 
         <div className="section-title">Robinhood (your accounts · read-only)</div>
         <RobinhoodPanel view={robinhood.view} error={robinhood.error} onReload={robinhood.reload} />
+
+        <div className="section-title">Watch list (signals only · never traded)</div>
+        <WatchPanel view={watch.view} error={watch.error} loading={watch.loading} onRefresh={watch.reload} />
 
         <div className="section-title">Orders & activity</div>
         <div className="grid-2">
