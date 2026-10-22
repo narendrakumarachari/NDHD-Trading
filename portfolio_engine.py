@@ -858,6 +858,11 @@ class AlpacaAPIError(RuntimeError):
     pass
 
 
+class NoSuitableOption(RuntimeError):
+    """No contract passed the wheel filters; an expected outcome, not a
+    failure."""
+
+
 class AlpacaClient:
 
     def __init__(self, config: Config):
@@ -3307,7 +3312,7 @@ class WheelStrategy:
         )
 
         if best is None:
-            raise RuntimeError(
+            raise NoSuitableOption(
                 f"No suitable {option_type} "
                 f"contract found for {symbol}."
             )
@@ -4546,6 +4551,12 @@ class PortfolioEngine:
                         account,
                         positions,
                         symbol,
+                    )
+                except NoSuitableOption as exc:
+                    LOGGER.info(
+                        "Wheel skipped for %s: %s",
+                        symbol,
+                        exc,
                     )
                 except Exception as exc:
                     LOGGER.exception(
