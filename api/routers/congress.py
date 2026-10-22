@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 
 from congress_trades.refresh import RefreshJob, pull_latest
@@ -25,7 +25,7 @@ from ..schemas import CongressOut, CongressRefreshOut, EngineStatusOut
 LOGGER = logging.getLogger("dashboard-api")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-router = APIRouter(prefix="/api", tags=["congress"], dependencies=[Depends(deps.require_api_key)])
+router = APIRouter(prefix="/api", tags=["congress"], dependencies=[Depends(deps.require_section("congress"))])
 # The full ledger is opened as a link, which can't send a header, so it also
 # accepts ?api_key= (the same way the /ws endpoint does).
 ledger_router = APIRouter(tags=["congress"])
@@ -88,11 +88,13 @@ _refresh_job = RefreshJob(lambda log: pull_latest(
     log, _aggregator_csv(), _data_path().parent / "house", _data_path().parent))
 
 
-@router.post("/congress/refresh", response_model=CongressRefreshOut, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/congress/refresh", response_model=CongressRefreshOut, status_code=status.HTTP_202_ACCEPTED,
+             dependencies=[Depends(deps.require_section("control"))])
 def start_refresh() -> CongressRefreshOut:
     """Pull only what's new from the House Clerk and rebuild the data file.
     Writes data files only; reaches no order, sizing, stop or RiskEngine code.
-    If a pull is already running, this just returns its status."""
+    If a pull is already running, this just returns its status. Admin only
+    (the "control" section): a pull is costly, so viewers can't start one."""
     _refresh_job.start()
     return CongressRefreshOut(**_refresh_job.snapshot())
 
@@ -119,11 +121,13 @@ def get_diagram() -> FileResponse:
 
 
 @ledger_router.get("/congress/ledger", response_class=FileResponse, include_in_schema=True)
-def get_ledger(api_key: Optional[str] = Query(default=None),
+def get_ledger(request: Request, api_key: Optional[str] = Query(default=None),
                x_api_key: Optional[str] = Header(default=None)) -> FileResponse:
-    expected = os.getenv("DASHBOARD_API_KEY")
-    if expected and expected not in (api_key, x_api_key):
+    principal = deps.principal_from(x_api_key or api_key, request.cookies.get(deps.SESSION_COOKIE))
+    if principal is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid API key.")
+    if "congress" not in principal.sections:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your role can't see the congress section.")
     path = _data_path().with_name("congress-trade-ledger.html")
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,

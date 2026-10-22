@@ -6,6 +6,19 @@ export interface Settings {
   apiKey: string;
 }
 
+/** Dashboard sections a role can see (ndhd/db.py SECTIONS). */
+export type Section = "account" | "strategy" | "alerts" | "congress" | "watch" | "robinhood" | "control";
+
+/** GET /api/auth/me (api/schemas.py MeOut). */
+export interface Me {
+  signed_in: boolean;
+  users_enabled: boolean;
+  username: string | null;
+  role: string | null;
+  sections: Section[];
+  via: "session" | "api_key" | "open" | null;
+}
+
 export interface Account {
   status: string;
   currency: string;
@@ -157,7 +170,8 @@ export interface MarketClock {
 
 // WebSocket messages from api/ws.py.
 export type LiveMessage =
-  | { type: "tick"; account: Account | null; positions: Position[]; orders: Order[]; alerts: Alert[] }
+  // alerts is left out for roles without the "alerts" section (api/ws.py).
+  | { type: "tick"; account: Account | null; positions: Position[]; orders: Order[]; alerts?: Alert[] }
   | { type: "strategy"; stocks: StockStrategy[]; wheels: WheelStrategy[]; risk: Risk | null; market?: MarketClock | null }
   | { type: "log"; entries: LogEntry[]; backlog?: boolean }
   | { type: "error"; tier: string; message: string };

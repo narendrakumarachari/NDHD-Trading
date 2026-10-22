@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from .. import convert, deps, logs
 from ..schemas import AlertOut
 
-router = APIRouter(prefix="/api", tags=["alerts"], dependencies=[Depends(deps.require_api_key)])
+router = APIRouter(prefix="/api", tags=["alerts"], dependencies=[Depends(deps.require_section("alerts"))])
 
 
 def read_recent_events(limit: int) -> List[dict]:

@@ -19,9 +19,13 @@ Alpaca account, so what you see here reflects the same ground truth the
 trading engine acts on (with the fast tier refreshed every few seconds and
 the heavier strategy/indicator tier on ~POLL_SECONDS-scale cadence).
 
-Authentication: set DASHBOARD_API_KEY in the environment and send it as
-the X-API-Key header. If unset, this API runs with NO authentication -
-fine for 127.0.0.1-only local development, not safe to expose further.
+Authentication (api/deps.py): the X-API-Key header matching
+DASHBOARD_API_KEY gives full admin access. With DATABASE_URL set, people
+can also sign in with a username and password (POST /api/auth/login); their
+role decides which dashboard sections they see (ndhd/db.py, users managed
+with scripts/manage_users.py). With neither set, this API runs with NO
+authentication - fine for 127.0.0.1-only local development, not safe to
+expose further.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import deps, logs, ws
-from .routers import alerts, congress, control, market, risk, robinhood, strategy, watch
+from .routers import alerts, auth, congress, control, market, risk, robinhood, strategy, watch
 
 LOGGER = logging.getLogger("dashboard-api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -50,7 +54,7 @@ _WEB_DIR = _REPO_ROOT / "web"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not os.getenv("DASHBOARD_API_KEY"):
+    if not os.getenv("DASHBOARD_API_KEY") and not deps.users_enabled():
         LOGGER.warning(
             "DASHBOARD_API_KEY is not set - this API (including order "
             "submission and the kill switch) is running WITHOUT "
@@ -90,6 +94,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(market.router)
 app.include_router(strategy.router)
 app.include_router(risk.router)
@@ -111,28 +116,35 @@ def health() -> dict:
         "live_trading": cfg.live_trading,
         "state_file": cfg.state_file,
         "alpaca_credentials_configured": alpaca_configured,
-        "authenticated_api": bool(os.getenv("DASHBOARD_API_KEY")),
+        "authenticated_api": bool(os.getenv("DASHBOARD_API_KEY")) or deps.users_enabled(),
+        "users_enabled": deps.users_enabled(),
     }
 
 
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket) -> None:
-    expected_key = os.getenv("DASHBOARD_API_KEY")
-    if expected_key and websocket.query_params.get("api_key") != expected_key:
+    from starlette.concurrency import run_in_threadpool
+
+    principal = await run_in_threadpool(
+        deps.principal_from,
+        websocket.query_params.get("api_key"),
+        websocket.cookies.get(deps.SESSION_COOKIE),
+    )
+    if principal is None:
         await websocket.close(code=4401)
         return
 
-    await ws.manager.connect(websocket)
+    await ws.manager.connect(websocket, principal.sections)
     try:
         # Send an immediate full snapshot so the UI doesn't sit blank
-        # until the next scheduled tick.
-        from starlette.concurrency import run_in_threadpool
-
-        await websocket.send_json(await run_in_threadpool(ws.build_fast_snapshot))
-        await websocket.send_json(await run_in_threadpool(ws.build_strategy_snapshot))
+        # until the next scheduled tick (only the parts this role may see).
+        if "account" in principal.sections:
+            await ws.manager.send(websocket, await run_in_threadpool(ws.build_fast_snapshot))
+        if "strategy" in principal.sections:
+            await ws.manager.send(websocket, await run_in_threadpool(ws.build_strategy_snapshot))
         backlog = await run_in_threadpool(logs.read_tail, 200)
         if backlog:
-            await websocket.send_json({"type": "log", "entries": backlog, "backlog": True})
+            await ws.manager.send(websocket, {"type": "log", "entries": backlog, "backlog": True})
 
         while True:
             await websocket.receive_text()  # client sends nothing meaningful; just detect disconnect

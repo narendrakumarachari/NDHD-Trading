@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from .. import convert, deps
 from ..schemas import RiskStatusOut
 
-router = APIRouter(prefix="/api", tags=["risk"], dependencies=[Depends(deps.require_api_key)])
+router = APIRouter(prefix="/api", tags=["risk"], dependencies=[Depends(deps.require_section("strategy"))])
 
 
 @router.get("/risk", response_model=RiskStatusOut)

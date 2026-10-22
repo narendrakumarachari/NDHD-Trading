@@ -136,15 +136,19 @@ function EngineTile({ view }: { view: CongressView }) {
 }
 
 /** The on-demand pull: a button, what the local store holds, and live progress while a pull runs. */
-function PullBar({ view, pullStatus, onPull }: { view: CongressView | null; pullStatus: CongressPull | null; onPull: () => void }) {
+function PullBar({ view, pullStatus, onPull }: { view: CongressView | null; pullStatus: CongressPull | null; onPull?: () => void }) {
   const running = pullStatus?.state === "running";
   const store = view?.store;
   const lastPull = store?.last_pull_at ? new Date(store.last_pull_at) : null;
   return (
     <div className="pull-bar">
-      <button className="btn primary" onClick={onPull} disabled={running}>
-        {running ? "Pulling…" : "Pull latest filings"}
-      </button>
+      {onPull ? (
+        <button className="btn primary" onClick={onPull} disabled={running}>
+          {running ? "Pulling…" : "Pull latest filings"}
+        </button>
+      ) : (
+        <span className="muted small">Only an admin can pull new filings.</span>
+      )}
       <div className="pull-info">
         {running ? (
           <span>{pullStatus?.message}</span>
@@ -186,7 +190,8 @@ interface Props {
   error: string | null;
   settings: Settings;
   pullStatus: CongressPull | null;
-  onPull: () => void;
+  /** Omitted for roles without the "control" section: no pull button. */
+  onPull?: () => void;
 }
 
 export function CongressPanel({ view, error, settings, pullStatus, onPull }: Props) {
@@ -238,7 +243,7 @@ export function CongressPanel({ view, error, settings, pullStatus, onPull }: Pro
         <div className={`banner ${view.stale ? "warning" : "danger"}`}>
           <div>
             <strong>{view.stale ? "Data is stale" : view.status === "missing" ? "No congress data yet" : "Data file unreadable"}</strong>
-            {view.message} Click "Pull latest filings" above to update it.
+            {view.message} {onPull ? 'Click "Pull latest filings" above to update it.' : "An admin can update it."}
           </div>
         </div>
       ) : null}

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Set
+from typing import Dict, FrozenSet, Optional
 
 from fastapi import WebSocket
 from starlette.concurrency import run_in_threadpool
@@ -31,22 +31,42 @@ LOGGER = logging.getLogger("dashboard-api.ws")
 _log_tailer = logs.LogTailer()
 
 
+# Which dashboard section (ndhd/db.py SECTIONS) each message type belongs
+# to. Types not listed (errors) go to everyone.
+MESSAGE_SECTIONS = {"tick": "account", "strategy": "strategy", "log": "alerts"}
+
+
+def visible_part(message: dict, sections: FrozenSet[str]) -> Optional[dict]:
+    """The message as this connection may see it, or None to skip it."""
+    section = MESSAGE_SECTIONS.get(message.get("type"))
+    if section is not None and section not in sections:
+        return None
+    if message.get("type") == "tick" and "alerts" not in sections and "alerts" in message:
+        return {k: v for k, v in message.items() if k != "alerts"}
+    return message
+
+
 class ConnectionManager:
     def __init__(self) -> None:
-        self.active: Set[WebSocket] = set()
+        self.active: Dict[WebSocket, FrozenSet[str]] = {}
 
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, sections: FrozenSet[str]) -> None:
         await websocket.accept()
-        self.active.add(websocket)
+        self.active[websocket] = sections
 
     def disconnect(self, websocket: WebSocket) -> None:
-        self.active.discard(websocket)
+        self.active.pop(websocket, None)
+
+    async def send(self, websocket: WebSocket, message: dict) -> None:
+        part = visible_part(message, self.active.get(websocket, frozenset()))
+        if part is not None:
+            await websocket.send_json(part)
 
     async def broadcast(self, message: dict) -> None:
         dead = []
         for websocket in list(self.active):
             try:
-                await websocket.send_json(message)
+                await self.send(websocket, message)
             except Exception:
                 dead.append(websocket)
         for websocket in dead:

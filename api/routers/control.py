@@ -35,7 +35,7 @@ from ..schemas import (
 
 _SECRET_CONFIG_FIELDS = {"smtp_password", "smtp_user", "alert_email_to", "alert_email_from"}
 
-router = APIRouter(prefix="/api", tags=["control"], dependencies=[Depends(deps.require_api_key)])
+router = APIRouter(prefix="/api", tags=["control"], dependencies=[Depends(deps.require_section("control"))])
 
 engine = deps.engine
 
