@@ -154,6 +154,7 @@ function App() {
         showCongress={can("congress")}
         me={auth.me}
         onSignOut={() => void auth.signOut()}
+        onForgetKey={() => handleSaveSettings({ ...settings, apiKey: "" })}
       />
 
       <div className="app-shell">

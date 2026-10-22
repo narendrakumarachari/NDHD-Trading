@@ -227,7 +227,8 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsProps) {
       <h3>Settings</h3>
       <p className="desc">
         Leave API base empty to use this same origin (recommended - the dashboard is normally served by the same FastAPI
-        process it talks to). Set an API key only if the server has DASHBOARD_API_KEY set.
+        process it talks to). The API key gives full admin access; it is kept only for this tab and forgotten when
+        the tab closes. With sign-in on, sign in with your username instead.
       </p>
       <div className="field">
         <label>API base URL (optional)</label>
@@ -235,7 +236,13 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsProps) {
       </div>
       <div className="field">
         <label>API key (X-API-Key)</label>
-        <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="only if DASHBOARD_API_KEY is set" />
+        <input
+          type="password"
+          autoComplete="off"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="only if DASHBOARD_API_KEY is set"
+        />
       </div>
       <div className="actions">
         <button className="btn" onClick={onClose}>Cancel</button>

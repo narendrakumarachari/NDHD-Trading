@@ -154,10 +154,21 @@ async def ws_endpoint(websocket: WebSocket) -> None:
         ws.manager.disconnect(websocket)
 
 
+class PageFiles(StaticFiles):
+    """The dashboard page with "Cache-Control: no-cache": browsers check for a
+    new build on every load (a cheap 304 when nothing changed) instead of
+    running an old copy for a while after an update."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 if _WEB_DIR.exists():
     if not (_WEB_DIR / "dist" / "app.js").exists():
         LOGGER.warning("web/dist/ is not built - the dashboard page will be blank. "
                        "Build it: cd web; npm ci; npm run build (see web/README.md).")
-    app.mount("/", StaticFiles(directory=str(_WEB_DIR), html=True), name="dashboard")
+    app.mount("/", PageFiles(directory=str(_WEB_DIR), html=True), name="dashboard")
 else:
     LOGGER.warning("web/ directory not found at %s - dashboard UI will not be served.", _WEB_DIR)

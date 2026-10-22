@@ -5,23 +5,45 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Alert, CongressPull, CongressView, LiveData, LiveMessage, Me, RobinhoodView, Settings, WatchView } from "./types.js";
 
 const SETTINGS_KEY = "ndhd_dashboard_settings_v1";
+// The API key is full admin access, so it is kept only for this tab
+// (sessionStorage) and never saved for good: every new tab, browser restart
+// or device starts at the sign-in screen.
+const API_KEY_KEY = "ndhd_dashboard_api_key";
 
 export function loadSettings(): Settings {
+  let apiBase = "";
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { apiBase: "", apiKey: "" };
-    const parsed = JSON.parse(raw) as Partial<Settings>;
-    return { apiBase: parsed.apiBase || "", apiKey: parsed.apiKey || "" };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<Settings>;
+      apiBase = parsed.apiBase || "";
+      // Pages from before sign-in saved the key here; forget it.
+      if (parsed.apiKey) localStorage.setItem(SETTINGS_KEY, JSON.stringify({ apiBase }));
+    }
   } catch {
-    return { apiBase: "", apiKey: "" };
+    // Storage refused or unreadable: defaults.
   }
+  let apiKey = "";
+  try {
+    apiKey = sessionStorage.getItem(API_KEY_KEY) || "";
+  } catch {
+    // Storage refused: no key.
+  }
+  return { apiBase, apiKey };
 }
 
 export function saveSettings(settings: Settings): void {
+  // Private windows can refuse storage; the settings still apply for this session.
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ apiBase: settings.apiBase }));
   } catch {
-    // Private windows can refuse storage; the settings still apply for this session.
+    // ignored
+  }
+  try {
+    if (settings.apiKey) sessionStorage.setItem(API_KEY_KEY, settings.apiKey);
+    else sessionStorage.removeItem(API_KEY_KEY);
+  } catch {
+    // ignored
   }
 }
 

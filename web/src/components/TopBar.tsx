@@ -13,6 +13,8 @@ interface Props {
   showCongress: boolean;
   me: Me;
   onSignOut: () => void;
+  /** Drops the API key this tab is using; back to the sign-in screen. */
+  onForgetKey: () => void;
 }
 
 export function TopBar({
@@ -25,6 +27,7 @@ export function TopBar({
   showCongress,
   me,
   onSignOut,
+  onForgetKey,
 }: Props) {
   const age = congressAge(congress);
   return (
@@ -61,6 +64,15 @@ export function TopBar({
           {me.username} · {me.role}
           <button className="link-btn" onClick={onSignOut}>
             Sign out
+          </button>
+        </span>
+      )}
+
+      {me.via === "api_key" && (
+        <span className="badge user-badge" title="This tab uses the API key: full admin access until you forget it or close the tab">
+          API key · admin
+          <button className="link-btn" onClick={onForgetKey}>
+            Forget key
           </button>
         </span>
       )}
