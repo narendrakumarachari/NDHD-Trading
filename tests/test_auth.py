@@ -7,6 +7,7 @@ Robinhood or controls), the API key and open modes, and WebSocket filtering.
 
 Run: python -m unittest discover -s tests -t .
 """
+import asyncio
 import os
 import tempfile
 import unittest
@@ -19,6 +20,7 @@ from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from sqlalchemy import create_engine, select  # noqa: E402
+from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 from starlette.responses import Response  # noqa: E402
@@ -249,6 +251,89 @@ class WebSocketFilterTest(unittest.TestCase):
         self.assertIsNone(ws.visible_part({"type": "log", "entries": []}, viewer))
         self.assertEqual(ws.visible_part({"type": "error"}, frozenset()), {"type": "error"})
         self.assertEqual(ws.visible_part(tick, frozenset(db.SECTIONS)), tick)
+
+
+class FakeSocket:
+    def __init__(self):
+        self.close_code = None
+
+    async def accept(self):
+        pass
+
+    async def close(self, code=1000):
+        self.close_code = code
+
+
+class WebSocketRecheckTest(AuthTestBase):
+    """Open live connections are checked again (api/ws.py recheck), so a
+    disabled user or ended session stops getting data without a reload."""
+
+    def open(self, manager, token=None, api_key=None):
+        principal = deps.principal_from(api_key, token)
+        sock = FakeSocket()
+        asyncio.run(manager.connect(sock, principal.sections, api_key, token))
+        return sock
+
+    def set_user_active(self, username, active):
+        with db.session() as s:
+            user = s.scalar(select(db.User).where(db.User.username == username))
+            user.is_active = active
+            if not active:
+                auth.revoke_user_sessions(s, user)
+            s.commit()
+
+    def test_unchanged_sign_in_stays_open(self):
+        manager = ws.ConnectionManager()
+        sock = self.open(manager, token=self.login())
+        asyncio.run(manager.recheck())
+        self.assertIsNone(sock.close_code)
+        self.assertIn(sock, manager.active)
+
+    def test_disabled_user_is_cut_off(self):
+        manager = ws.ConnectionManager()
+        sock = self.open(manager, token=self.login())
+        self.set_user_active("ada", False)
+        asyncio.run(manager.recheck())
+        self.assertEqual(sock.close_code, ws.CLOSE_SIGNED_OUT)
+        self.assertNotIn(sock, manager.active)
+
+    def test_signed_out_and_expired_sessions_are_cut_off(self):
+        manager = ws.ConnectionManager()
+        signed_out, expired = self.login(), self.login()
+        socks = [self.open(manager, token=signed_out), self.open(manager, token=expired)]
+        with db.session() as s:
+            auth.logout(s, signed_out)
+            s.get(db.LoginSession, auth.token_hash(expired)).expires_at = db.utcnow() - timedelta(seconds=1)
+            s.commit()
+        asyncio.run(manager.recheck())
+        self.assertEqual([k.close_code for k in socks], [ws.CLOSE_SIGNED_OUT] * 2)
+        self.assertEqual(manager.active, {})
+
+    def test_role_change_closes_with_its_own_code(self):
+        manager = ws.ConnectionManager()
+        sock = self.open(manager, token=self.login())
+        with db.session() as s:
+            viewer = s.scalar(select(db.Role).where(db.Role.name == db.VIEWER_ROLE))
+            viewer.sections = [db.RoleSection(section="watch")]
+            s.commit()
+        asyncio.run(manager.recheck())
+        self.assertEqual(sock.close_code, ws.CLOSE_ROLE_CHANGED)
+
+    def test_api_key_connection_stays_until_the_key_changes(self):
+        manager = ws.ConnectionManager()
+        sock = self.open(manager, api_key="the-key")
+        asyncio.run(manager.recheck())
+        self.assertIsNone(sock.close_code)
+        with mock.patch.dict(os.environ, {"DASHBOARD_API_KEY": "a-new-key"}):
+            asyncio.run(manager.recheck())
+        self.assertEqual(sock.close_code, ws.CLOSE_SIGNED_OUT)
+
+    def test_database_error_fails_closed(self):
+        manager = ws.ConnectionManager()
+        sock = self.open(manager, token=self.login())
+        with mock.patch.object(deps, "principal_from", side_effect=OperationalError("x", {}, Exception("down"))):
+            asyncio.run(manager.recheck())
+        self.assertEqual(sock.close_code, ws.CLOSE_SIGNED_OUT)
 
 
 if __name__ == "__main__":

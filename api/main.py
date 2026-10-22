@@ -125,16 +125,17 @@ def health() -> dict:
 async def ws_endpoint(websocket: WebSocket) -> None:
     from starlette.concurrency import run_in_threadpool
 
-    principal = await run_in_threadpool(
-        deps.principal_from,
-        websocket.query_params.get("api_key"),
-        websocket.cookies.get(deps.SESSION_COOKIE),
-    )
+    api_key = websocket.query_params.get("api_key")
+    session_token = websocket.cookies.get(deps.SESSION_COOKIE)
+    principal = await run_in_threadpool(deps.principal_from, api_key, session_token)
     if principal is None:
-        await websocket.close(code=4401)
+        # Accept first so the page sees the close code (a refusal before
+        # accepting arrives as a generic failure) and shows the sign-in screen.
+        await websocket.accept()
+        await websocket.close(code=ws.CLOSE_SIGNED_OUT)
         return
 
-    await ws.manager.connect(websocket, principal.sections)
+    await ws.manager.connect(websocket, principal.sections, api_key, session_token)
     try:
         # Send an immediate full snapshot so the UI doesn't sit blank
         # until the next scheduled tick (only the parts this role may see).

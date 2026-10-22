@@ -28,7 +28,11 @@ function App() {
   const auth = useAuth(settings);
   const signedIn = auth.me?.signed_in ?? false;
   const can = (section: Section) => signedIn && (auth.me?.sections ?? []).includes(section);
-  const { connected, lastError, data, newAlerts, consumeNewAlert, clearLogs } = useLiveData(settings, signedIn);
+  const { connected, lastError, data, newAlerts, consumeNewAlert, clearLogs } = useLiveData(
+    settings,
+    signedIn,
+    () => void auth.reload(),
+  );
   // Congress data loads once and after an on-demand pull; never on a timer.
   const congress = useCongress(settings, can("congress"));
   // Robinhood snapshot: read once, and again when "Reload" is clicked.

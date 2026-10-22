@@ -144,6 +144,10 @@ function wsUrl(settings: Settings): string {
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
 const MAX_LOG_LINES = 500;
+// Close codes from api/ws.py: the sign-in ended (disabled, signed out,
+// expired), or the role changed. Either way, ask the server who we are now.
+const CLOSE_SIGNED_OUT = 4401;
+const CLOSE_ROLE_CHANGED = 4403;
 
 const EMPTY: LiveData = {
   account: null,
@@ -162,9 +166,12 @@ const EMPTY: LiveData = {
  * Connects to /ws, applies incoming "tick"/"strategy"/"log" messages to state,
  * and auto-reconnects with capped exponential backoff. Stays disconnected
  * while `enabled` is false (not signed in). The server sends only the
- * message types this user's role may see.
+ * message types this user's role may see, and closes the connection when
+ * the sign-in ends or the role changes; `onAuthChange` then reloads who we are.
  */
-export function useLiveData(settings: Settings, enabled = true) {
+export function useLiveData(settings: Settings, enabled = true, onAuthChange?: () => void) {
+  const onAuthChangeRef = useRef(onAuthChange);
+  onAuthChangeRef.current = onAuthChange;
   const [connected, setConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [data, setData] = useState<LiveData>(EMPTY);
@@ -259,8 +266,13 @@ export function useLiveData(settings: Settings, enabled = true) {
           // Ignore a malformed frame; the next tick carries a full snapshot.
         }
       };
-      socket.onclose = () => {
+      socket.onclose = (event: CloseEvent) => {
         setConnected(false);
+        if (event.code === CLOSE_SIGNED_OUT || event.code === CLOSE_ROLE_CHANGED) {
+          // Signed out: the page switches to the sign-in screen and this
+          // hook is disabled, which cancels the reconnect below.
+          onAuthChangeRef.current?.();
+        }
         if (!stopped.current) scheduleReconnect();
       };
       socket.onerror = () => socket.close();

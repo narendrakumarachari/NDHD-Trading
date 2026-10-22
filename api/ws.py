@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
+from dataclasses import dataclass
 from typing import Dict, FrozenSet, Optional
 
 from fastapi import WebSocket
@@ -29,6 +32,16 @@ from .routers.alerts import read_recent_events
 LOGGER = logging.getLogger("dashboard-api.ws")
 
 _log_tailer = logs.LogTailer()
+
+# How often open connections are checked again against the users database,
+# so disabling a user, signing out, an expired session or a role change takes
+# effect on live updates within this many seconds.
+WS_AUTH_RECHECK_SECONDS = float(os.getenv("WS_AUTH_RECHECK_SECONDS", "15"))
+
+# Close codes the page acts on (web/src/api.ts): signed out, so show the
+# sign-in screen; role changed, so reload what this user may see and reconnect.
+CLOSE_SIGNED_OUT = 4401
+CLOSE_ROLE_CHANGED = 4403
 
 
 # Which dashboard section (ndhd/db.py SECTIONS) each message type belongs
@@ -46,21 +59,51 @@ def visible_part(message: dict, sections: FrozenSet[str]) -> Optional[dict]:
     return message
 
 
+@dataclass
+class _Connection:
+    sections: FrozenSet[str]
+    # What the connection signed in with, to check it again later.
+    api_key: Optional[str] = None
+    session_token: Optional[str] = None
+
+
 class ConnectionManager:
     def __init__(self) -> None:
-        self.active: Dict[WebSocket, FrozenSet[str]] = {}
+        self.active: Dict[WebSocket, _Connection] = {}
 
-    async def connect(self, websocket: WebSocket, sections: FrozenSet[str]) -> None:
+    async def connect(self, websocket: WebSocket, sections: FrozenSet[str],
+                      api_key: Optional[str] = None, session_token: Optional[str] = None) -> None:
         await websocket.accept()
-        self.active[websocket] = sections
+        self.active[websocket] = _Connection(sections, api_key, session_token)
 
     def disconnect(self, websocket: WebSocket) -> None:
         self.active.pop(websocket, None)
 
     async def send(self, websocket: WebSocket, message: dict) -> None:
-        part = visible_part(message, self.active.get(websocket, frozenset()))
+        conn = self.active.get(websocket)
+        part = visible_part(message, conn.sections if conn else frozenset())
         if part is not None:
             await websocket.send_json(part)
+
+    async def recheck(self) -> None:
+        """Check every connection's sign-in again. Closes connections whose
+        user was disabled, signed out or expired (or whose API key changed),
+        and those whose role now gives different sections. Fails closed: a
+        database error closes the session connections too."""
+        for websocket, conn in list(self.active.items()):
+            try:
+                principal = await run_in_threadpool(deps.principal_from, conn.api_key, conn.session_token)
+            except Exception as exc:  # noqa: BLE001 - fail closed
+                LOGGER.warning("WS sign-in recheck failed (%s); closing the connection.", exc)
+                principal = None
+            if principal is not None and principal.sections == conn.sections:
+                continue
+            code = CLOSE_SIGNED_OUT if principal is None else CLOSE_ROLE_CHANGED
+            self.disconnect(websocket)
+            try:
+                await websocket.close(code=code)
+            except Exception:  # noqa: BLE001 - already gone
+                pass
 
     async def broadcast(self, message: dict) -> None:
         dead = []
@@ -123,7 +166,15 @@ def _market_clock() -> dict | None:
 
 async def broadcaster_loop(fast_interval: float, slow_every: int) -> None:
     tick = 0
+    last_recheck = time.monotonic()
     while True:
+        if time.monotonic() - last_recheck >= WS_AUTH_RECHECK_SECONDS:
+            last_recheck = time.monotonic()
+            try:
+                await manager.recheck()
+            except Exception as exc:  # noqa: BLE001 - keep the loop alive
+                LOGGER.warning("WS sign-in recheck failed: %s", exc)
+
         try:
             fast = await run_in_threadpool(build_fast_snapshot)
             await manager.broadcast(fast)
