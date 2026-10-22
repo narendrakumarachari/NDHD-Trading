@@ -177,6 +177,33 @@ class SectionGateTest(AuthTestBase):
             deps.require_section("nope")
 
 
+class CongressPullTest(unittest.TestCase):
+    """A Congress pull is costly: viewers may read the data, only admins may
+    start a pull."""
+
+    def gate_results(self, method, principal):
+        from api.routers import congress
+        route = next(r for r in congress.router.routes
+                     if r.path == "/api/congress/refresh" and method in r.methods)
+        results = []
+        for dep in route.dependant.dependencies:
+            try:
+                dep.call(principal=principal)
+                results.append(200)
+            except HTTPException as exc:
+                results.append(exc.status_code)
+        return results
+
+    def test_viewer_can_read_status_but_not_start_a_pull(self):
+        viewer = auth.Principal("ada", db.VIEWER_ROLE, frozenset(db.VIEWER_DEFAULT_SECTIONS), "session")
+        self.assertEqual(self.gate_results("GET", viewer), [200])
+        self.assertIn(403, self.gate_results("POST", viewer))
+
+    def test_admin_can_start_a_pull(self):
+        admin = auth.Principal("root", db.ADMIN_ROLE, frozenset(db.SECTIONS), "session")
+        self.assertEqual(set(self.gate_results("POST", admin)), {200})
+
+
 class ModesTest(unittest.TestCase):
     def test_open_only_when_neither_key_nor_database(self):
         with mock.patch.dict(os.environ, {}, clear=True):

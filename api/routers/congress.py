@@ -88,11 +88,13 @@ _refresh_job = RefreshJob(lambda log: pull_latest(
     log, _aggregator_csv(), _data_path().parent / "house", _data_path().parent))
 
 
-@router.post("/congress/refresh", response_model=CongressRefreshOut, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/congress/refresh", response_model=CongressRefreshOut, status_code=status.HTTP_202_ACCEPTED,
+             dependencies=[Depends(deps.require_section("control"))])
 def start_refresh() -> CongressRefreshOut:
     """Pull only what's new from the House Clerk and rebuild the data file.
     Writes data files only; reaches no order, sizing, stop or RiskEngine code.
-    If a pull is already running, this just returns its status."""
+    If a pull is already running, this just returns its status. Admin only
+    (the "control" section): a pull is costly, so viewers can't start one."""
     _refresh_job.start()
     return CongressRefreshOut(**_refresh_job.snapshot())
 

@@ -35,7 +35,7 @@ PostgreSQL. The trading engine doesn't use the database.
 | congress | Congress trades research | yes | yes |
 | watch | Watch-only list | yes | yes |
 | robinhood | Robinhood snapshot (personal) | yes | no |
-| control | Orders, closing positions, kill switch, config | yes | no |
+| control | Orders, closing positions, kill switch, config, starting a Congress pull | yes | no |
 
 Admin always sees everything. The viewer's sections can be changed with
 `manage_users.py sections viewer --set ...`. The server enforces the
@@ -98,5 +98,3 @@ before: every section shown, the API key deciding.
 
 - The server setup script (`deploy/setup-server.sh`) doesn't install
   PostgreSQL yet.
-- A viewer can press "Pull latest filings" in the Congress panel (it starts
-  a download of public House filings on the server).

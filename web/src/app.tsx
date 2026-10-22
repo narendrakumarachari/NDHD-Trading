@@ -228,7 +228,7 @@ function App() {
               error={congress.error}
               settings={settings}
               pullStatus={congress.pullStatus}
-              onPull={congress.pull}
+              onPull={control ? congress.pull : undefined}
             />
           </>
         )}

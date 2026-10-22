@@ -26,7 +26,7 @@ SECTIONS = {
     "congress": "Congress trades research",
     "watch": "Watch-only list",
     "robinhood": "Robinhood snapshot (personal brokerage data)",
-    "control": "Orders, closing positions, the kill switch",
+    "control": "Orders, closing positions, the kill switch, starting a Congress pull",
 }
 
 # Seeded by the first migration. Admin always gets every section, whatever
