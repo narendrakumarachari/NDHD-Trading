@@ -2,7 +2,7 @@
 // Thin REST client + WebSocket hook for the dashboard API (api/main.py).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Alert, CongressPull, CongressView, LiveData, LiveMessage, RobinhoodView, Settings, WatchView } from "./types.js";
+import type { Alert, CongressPull, CongressView, LiveData, LiveMessage, Me, RobinhoodView, Settings, WatchView } from "./types.js";
 
 const SETTINGS_KEY = "ndhd_dashboard_settings_v1";
 
@@ -54,6 +54,63 @@ export async function apiFetch<T>(settings: Settings, path: string, options: Req
   return body as T;
 }
 
+const SIGNED_OUT: Me = { signed_in: false, users_enabled: false, username: null, role: null, sections: [], via: null };
+// A server from before sign-in existed has no /api/auth/me (404): behave as
+// before, with every section shown and the API key from Settings deciding.
+const LEGACY_SERVER: Me = {
+  signed_in: true,
+  users_enabled: false,
+  username: null,
+  role: "admin",
+  sections: ["account", "strategy", "alerts", "congress", "watch", "robinhood", "control"],
+  via: "api_key",
+};
+
+/**
+ * Who this browser is: signed in with a username (session cookie), by the
+ * API key from Settings, or not at all. The server decides the sections;
+ * the page only uses them to hide what would be refused anyway.
+ */
+export function useAuth(settings: Settings) {
+  const [me, setMe] = useState<Me | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setMe(await apiFetch<Me>(settings, "/api/auth/me"));
+      setError(null);
+    } catch (exc) {
+      const legacy = exc instanceof ApiError && exc.status === 404;
+      setMe(legacy ? LEGACY_SERVER : SIGNED_OUT);
+      setError(legacy ? null : exc instanceof Error ? exc.message : String(exc));
+    }
+  }, [settings.apiBase, settings.apiKey]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function signIn(username: string, password: string): Promise<string | null> {
+    try {
+      setMe(await apiFetch<Me>(settings, "/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }));
+      setError(null);
+      return null;
+    } catch (exc) {
+      return exc instanceof Error ? exc.message : String(exc);
+    }
+  }
+
+  async function signOut() {
+    try {
+      await apiFetch(settings, "/api/auth/logout", { method: "POST" });
+    } finally {
+      await load();
+    }
+  }
+
+  return { me, error, signIn, signOut, reload: load };
+}
+
 function wsUrl(settings: Settings): string {
   const base = settings.apiBase
     ? settings.apiBase.replace(/^http/, "ws")
@@ -81,9 +138,11 @@ const EMPTY: LiveData = {
 
 /**
  * Connects to /ws, applies incoming "tick"/"strategy"/"log" messages to state,
- * and auto-reconnects with capped exponential backoff.
+ * and auto-reconnects with capped exponential backoff. Stays disconnected
+ * while `enabled` is false (not signed in). The server sends only the
+ * message types this user's role may see.
  */
-export function useLiveData(settings: Settings) {
+export function useLiveData(settings: Settings, enabled = true) {
   const [connected, setConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [data, setData] = useState<LiveData>(EMPTY);
@@ -116,7 +175,7 @@ export function useLiveData(settings: Settings) {
             account: msg.account,
             positions: msg.positions,
             orders: msg.orders,
-            alerts: msg.alerts,
+            alerts: msg.alerts ?? [],
             lastUpdated: new Date().toISOString(),
           }));
           const fresh = (msg.alerts || []).filter((a) => {
@@ -185,14 +244,15 @@ export function useLiveData(settings: Settings) {
       socket.onerror = () => socket.close();
     }
 
-    connect();
+    if (enabled) connect();
+    else setData(EMPTY);
 
     return () => {
       stopped.current = true;
       clearTimeout(timerRef.current);
       socketRef.current?.close();
     };
-  }, [settings.apiBase, settings.apiKey]);
+  }, [settings.apiBase, settings.apiKey, enabled]);
 
   function consumeNewAlert(index: number) {
     setNewAlerts((prev) => prev.filter((_, i) => i !== index));
@@ -213,7 +273,7 @@ const PULL_STATUS_POLL_MS = 2000;
  * asks the server to fetch only what's new from the House Clerk; while that
  * runs, its status is checked every 2 s, and polling stops when it finishes.
  */
-export function useCongress(settings: Settings) {
+export function useCongress(settings: Settings, enabled = true) {
   const [view, setView] = useState<CongressView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pullStatus, setPullStatus] = useState<CongressPull | null>(null);
@@ -229,9 +289,13 @@ export function useCongress(settings: Settings) {
   }, [settings.apiBase, settings.apiKey]);
 
   useEffect(() => {
+    if (!enabled) {
+      setView(null);
+      return;
+    }
     void load();
     apiFetch<CongressPull>(settings, "/api/congress/refresh").then(setPullStatus, () => undefined);
-  }, [load]);
+  }, [load, enabled]);
 
   const running = pullStatus?.state === "running";
   useEffect(() => {
@@ -263,7 +327,7 @@ export function useCongress(settings: Settings) {
  * The Robinhood snapshot, read from the local data file when the page opens
  * and when "Reload" is clicked. Claude Code writes the file; this only reads it.
  */
-export function useRobinhood(settings: Settings) {
+export function useRobinhood(settings: Settings, enabled = true) {
   const [view, setView] = useState<RobinhoodView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -277,8 +341,10 @@ export function useRobinhood(settings: Settings) {
   }, [settings.apiBase, settings.apiKey]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    // Never fetched for a role without the section; and cleared on sign-out.
+    if (enabled) void load();
+    else setView(null);
+  }, [load, enabled]);
 
   return { view, error, reload: load };
 }
@@ -287,7 +353,7 @@ export function useRobinhood(settings: Settings) {
  * The watch-only list, loaded when the page opens and on "Refresh". The API
  * caches it for 10 minutes; refresh=true recomputes now.
  */
-export function useWatch(settings: Settings) {
+export function useWatch(settings: Settings, enabled = true) {
   const [view, setView] = useState<WatchView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -308,8 +374,9 @@ export function useWatch(settings: Settings) {
   );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (enabled) void load();
+    else setView(null);
+  }, [load, enabled]);
 
   return { view, error, loading, reload: () => load(true) };
 }

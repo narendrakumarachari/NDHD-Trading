@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { apiFetch, loadSettings, saveSettings, useCongress, useLiveData, useRobinhood, useWatch } from "./api.js";
-import type { Alert, CongressSymbol, ManualOrderRequest, ManualOrderResult, Settings } from "./types.js";
+import { apiFetch, loadSettings, saveSettings, useAuth, useCongress, useLiveData, useRobinhood, useWatch } from "./api.js";
+import type { Alert, CongressSymbol, ManualOrderRequest, ManualOrderResult, Section, Settings } from "./types.js";
 
 import { AlertsFeed, ToastStack } from "./components/Alerts.js";
 import { CongressPanel } from "./components/CongressPanel.js";
@@ -10,6 +10,7 @@ import { LiveConsole } from "./components/LiveConsole.js";
 import { ClosePositionModal, KillSwitchModal, ManualOrderModal, SettingsModal } from "./components/Modals.js";
 import { RiskPanel } from "./components/RiskPanel.js";
 import { RobinhoodPanel } from "./components/RobinhoodPanel.js";
+import { SignInScreen } from "./components/SignIn.js";
 import { StockPanel, WheelPanel } from "./components/StrategyPanels.js";
 import { OrdersTable, PositionsTable } from "./components/Tables.js";
 import { TopBar } from "./components/TopBar.js";
@@ -21,13 +22,19 @@ type Modal = null | "settings" | "kill-switch" | "manual-order" | { type: "close
 
 function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings());
-  const { connected, lastError, data, newAlerts, consumeNewAlert, clearLogs } = useLiveData(settings);
+  // Who's signed in decides what loads and shows. The server enforces the
+  // same sections on every route and on /ws; hiding here just avoids
+  // showing panels that would only say "forbidden".
+  const auth = useAuth(settings);
+  const signedIn = auth.me?.signed_in ?? false;
+  const can = (section: Section) => signedIn && (auth.me?.sections ?? []).includes(section);
+  const { connected, lastError, data, newAlerts, consumeNewAlert, clearLogs } = useLiveData(settings, signedIn);
   // Congress data loads once and after an on-demand pull; never on a timer.
-  const congress = useCongress(settings);
+  const congress = useCongress(settings, can("congress"));
   // Robinhood snapshot: read once, and again when "Reload" is clicked.
-  const robinhood = useRobinhood(settings);
+  const robinhood = useRobinhood(settings, can("robinhood"));
   // Watch-only signals: on open and on "Refresh" (the API caches 10 min).
-  const watch = useWatch(settings);
+  const watch = useWatch(settings, can("watch"));
   const congressBySymbol = useMemo(() => {
     const map: Record<string, CongressSymbol> = {};
     for (const s of congress.view?.your_symbols ?? []) map[s.symbol] = s;
@@ -51,6 +58,14 @@ function App() {
     if (equity === undefined) return;
     setEquitySeries((prev) => [...prev, equity].slice(-MAX_EQUITY_POINTS));
   }, [equity]);
+
+  // Signing out leaves nothing of the last user's data on the page.
+  useEffect(() => {
+    if (signedIn) return;
+    setEquitySeries([]);
+    setToasts([]);
+    setActionError(null);
+  }, [signedIn]);
 
   // Promote newly-seen alerts into the toast stack.
   useEffect(() => {
@@ -110,6 +125,22 @@ function App() {
 
   const risk = data.risk;
   const closeModal = () => setModal(null);
+  const control = can("control");
+  const settingsModal = modal === "settings" && (
+    <SettingsModal settings={settings} onSave={handleSaveSettings} onClose={closeModal} />
+  );
+
+  if (auth.me === null) {
+    return <div className="signin-wrap muted">Loading…</div>;
+  }
+  if (!signedIn) {
+    return (
+      <>
+        <SignInScreen me={auth.me} loadError={auth.error} onSignIn={auth.signIn} onOpenSettings={() => setModal("settings")} />
+        {settingsModal}
+      </>
+    );
+  }
 
   return (
     <>
@@ -118,8 +149,11 @@ function App() {
         connected={connected}
         congress={congress.view}
         onOpenSettings={() => setModal("settings")}
-        onOpenKillSwitch={() => setModal("kill-switch")}
+        onOpenKillSwitch={control ? () => setModal("kill-switch") : undefined}
         killSwitchBusy={killSwitchBusy}
+        showCongress={can("congress")}
+        me={auth.me}
+        onSignOut={() => void auth.signOut()}
       />
 
       <div className="app-shell">
@@ -151,74 +185,110 @@ function App() {
           </div>
         )}
 
-        <Hero account={data.account} risk={risk} equitySeries={equitySeries} />
+        {can("account") && <Hero account={data.account} risk={risk} equitySeries={equitySeries} />}
 
-        <div className="section-title">Live engine console</div>
-        <LiveConsole lines={data.logLines} connected={connected} onClear={clearLogs} />
+        {can("alerts") && (
+          <>
+            <div className="section-title">Live engine console</div>
+            <LiveConsole lines={data.logLines} connected={connected} onClear={clearLogs} />
+          </>
+        )}
 
-        <div className="section-title">Risk & positions</div>
-        <div className="grid-2">
-          <RiskPanel risk={risk} />
-          <PositionsTable
-            positions={data.positions}
-            onClose={(symbol) => setModal({ type: "close", symbol })}
-            closingSymbol={closingSymbol}
-          />
-        </div>
+        {(can("strategy") || can("account")) && (
+          <>
+            <div className="section-title">Risk & positions</div>
+            <div className="grid-2">
+              {can("strategy") && <RiskPanel risk={risk} />}
+              {can("account") && (
+                <PositionsTable
+                  positions={data.positions}
+                  onClose={control ? (symbol) => setModal({ type: "close", symbol }) : undefined}
+                  closingSymbol={closingSymbol}
+                />
+              )}
+            </div>
+          </>
+        )}
 
-        <div className="section-title">Strategies</div>
-        <div className="grid-2">
-          <StockPanel stocks={data.stocks} market={data.market} congress={congressBySymbol} />
-          <WheelPanel wheels={data.wheels} market={data.market} congress={congressBySymbol} />
-        </div>
+        {can("strategy") && (
+          <>
+            <div className="section-title">Strategies</div>
+            <div className="grid-2">
+              <StockPanel stocks={data.stocks} market={data.market} congress={congressBySymbol} />
+              <WheelPanel wheels={data.wheels} market={data.market} congress={congressBySymbol} />
+            </div>
+          </>
+        )}
 
-        <div className="section-title">Congress trades (research · advisory only)</div>
-        <CongressPanel
-          view={congress.view}
-          error={congress.error}
-          settings={settings}
-          pullStatus={congress.pullStatus}
-          onPull={congress.pull}
-        />
+        {can("congress") && (
+          <>
+            <div className="section-title">Congress trades (research · advisory only)</div>
+            <CongressPanel
+              view={congress.view}
+              error={congress.error}
+              settings={settings}
+              pullStatus={congress.pullStatus}
+              onPull={congress.pull}
+            />
+          </>
+        )}
 
-        <div className="section-title">Robinhood (your accounts · read-only)</div>
-        <RobinhoodPanel view={robinhood.view} error={robinhood.error} onReload={robinhood.reload} />
+        {can("robinhood") && (
+          <>
+            <div className="section-title">Robinhood (your accounts · read-only)</div>
+            <RobinhoodPanel view={robinhood.view} error={robinhood.error} onReload={robinhood.reload} />
+          </>
+        )}
 
-        <div className="section-title">Watch list (signals only · never traded)</div>
-        <WatchPanel view={watch.view} error={watch.error} loading={watch.loading} onRefresh={watch.reload} />
+        {can("watch") && (
+          <>
+            <div className="section-title">Watch list (signals only · never traded)</div>
+            <WatchPanel view={watch.view} error={watch.error} loading={watch.loading} onRefresh={watch.reload} />
+          </>
+        )}
 
-        <div className="section-title">Orders & activity</div>
-        <div className="grid-2">
-          <OrdersTable orders={data.orders} onCancel={handleCancelOrder} cancellingId={cancellingId} />
-          <AlertsFeed alerts={data.alerts} />
-        </div>
+        {(can("account") || can("alerts")) && (
+          <>
+            <div className="section-title">Orders & activity</div>
+            <div className="grid-2">
+              {can("account") && (
+                <OrdersTable orders={data.orders} onCancel={control ? handleCancelOrder : undefined} cancellingId={cancellingId} />
+              )}
+              {can("alerts") && <AlertsFeed alerts={data.alerts} />}
+            </div>
+          </>
+        )}
 
-        <div className="section-title">Manual control</div>
-        <div className="card">
-          <div className="card-title">
-            <span>Submit a manual order</span>
-          </div>
-          <p className="muted" style={{ margin: "6px 0 12px" }}>
-            Opens the manual order form. Orders that open/increase exposure still pass the account's configured risk
-            limits.
-          </p>
-          <button
-            className="btn primary"
-            onClick={() => {
-              setManualOrderResult(null);
-              setModal("manual-order");
-            }}
-          >
-            New manual order
-          </button>
-        </div>
+        {control && (
+          <>
+            <div className="section-title">Manual control</div>
+            <div className="card">
+              <div className="card-title">
+                <span>Submit a manual order</span>
+              </div>
+              <p className="muted" style={{ margin: "6px 0 12px" }}>
+                Opens the manual order form. Orders that open/increase exposure still pass the account's configured
+                risk limits.
+              </p>
+              <button
+                className="btn primary"
+                onClick={() => {
+                  setManualOrderResult(null);
+                  setModal("manual-order");
+                }}
+              >
+                New manual order
+              </button>
+            </div>
+          </>
+        )}
 
         <footer className="hint">NDHD Trading Dashboard{lastError ? ` · Last error: ${lastError}` : ""}</footer>
       </div>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
-      {modal === "settings" && <SettingsModal settings={settings} onSave={handleSaveSettings} onClose={closeModal} />}
+      {settingsModal}
       {modal === "kill-switch" && <KillSwitchModal busy={killSwitchBusy} onConfirm={handleKillSwitch} onClose={closeModal} />}
       {modal !== null && typeof modal === "object" && (
         <ClosePositionModal

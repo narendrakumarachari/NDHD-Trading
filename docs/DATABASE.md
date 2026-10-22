@@ -81,10 +81,22 @@ only cosmetic on top of that.
 Backup: `pg_dump -h 127.0.0.1 -U ndhd_app -Fc ndhd > ndhd.dump`
 (`C:\Program Files\PostgreSQL\17\bin\pg_dump.exe`).
 
+## The dashboard page
+
+`web/src/components/SignIn.tsx` is shown until the browser is signed in
+(username and password, or "Use API key" for Settings). After that,
+`web/src/app.tsx` shows only the sections in `/api/auth/me`: a viewer gets
+no Robinhood panel, no kill switch, no manual order panel and no Close or
+Cancel buttons, and the page never requests the hidden sections' data. The
+top bar shows the username and a "Sign out" link. Signing out clears the
+page's data.
+
+A server from before sign-in (no `/api/auth/me`, so 404) is treated as
+before: every section shown, the API key deciding.
+
 ## Not done yet
 
-- The dashboard page has no sign-in form yet, and it doesn't hide panels by
-  section. Until it does, viewers can sign in only through the API, and the
-  page itself still works with the API key as before.
 - The server setup script (`deploy/setup-server.sh`) doesn't install
   PostgreSQL yet.
+- A viewer can press "Pull latest filings" in the Congress panel (it starts
+  a download of public House filings on the server).

@@ -1,4 +1,4 @@
-import type { Account, CongressView } from "../types.js";
+import type { Account, CongressView, Me } from "../types.js";
 import { congressAge } from "./CongressPanel.js";
 
 interface Props {
@@ -6,11 +6,26 @@ interface Props {
   connected: boolean;
   congress: CongressView | null;
   onOpenSettings: () => void;
-  onOpenKillSwitch: () => void;
+  /** Omitted when this role can't use controls: no kill switch button. */
+  onOpenKillSwitch?: () => void;
   killSwitchBusy: boolean;
+  /** False hides the congress data badge. */
+  showCongress: boolean;
+  me: Me;
+  onSignOut: () => void;
 }
 
-export function TopBar({ account, connected, congress, onOpenSettings, onOpenKillSwitch, killSwitchBusy }: Props) {
+export function TopBar({
+  account,
+  connected,
+  congress,
+  onOpenSettings,
+  onOpenKillSwitch,
+  killSwitchBusy,
+  showCongress,
+  me,
+  onSignOut,
+}: Props) {
   const age = congressAge(congress);
   return (
     <div className="topbar">
@@ -33,15 +48,28 @@ export function TopBar({ account, connected, congress, onOpenSettings, onOpenKil
         {connected ? "Live" : "Reconnecting…"}
       </span>
 
-      <a className={`badge congress-age ${age.tone}`} href="#congress" title="Congress trades data: how old it is">
-        Congress data: {age.label}
-      </a>
+      {showCongress && (
+        <a className={`badge congress-age ${age.tone}`} href="#congress" title="Congress trades data: how old it is">
+          Congress data: {age.label}
+        </a>
+      )}
 
       <div className="topbar-spacer" />
 
-      <button className="kill-switch-btn" disabled={killSwitchBusy} onClick={onOpenKillSwitch}>
-        {killSwitchBusy ? "Working…" : "Kill switch"}
-      </button>
+      {me.via === "session" && (
+        <span className="badge user-badge" title={`Signed in as ${me.username} (${me.role})`}>
+          {me.username} · {me.role}
+          <button className="link-btn" onClick={onSignOut}>
+            Sign out
+          </button>
+        </span>
+      )}
+
+      {onOpenKillSwitch && (
+        <button className="kill-switch-btn" disabled={killSwitchBusy} onClick={onOpenKillSwitch}>
+          {killSwitchBusy ? "Working…" : "Kill switch"}
+        </button>
+      )}
 
       <button className="icon-btn" title="Settings" onClick={onOpenSettings}>
         ⚙

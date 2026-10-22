@@ -3,7 +3,8 @@ import type { Order, Position } from "../types.js";
 
 interface PositionsProps {
   positions: Position[];
-  onClose: (symbol: string) => void;
+  /** Omitted when this role can't use controls: no Close buttons. */
+  onClose?: (symbol: string) => void;
   closingSymbol: string | null;
 }
 
@@ -52,9 +53,11 @@ export function PositionsTable({ positions, onClose, closingSymbol }: PositionsP
                 {money(p.unrealized_pl, { signed: true })} ({pct(p.unrealized_plpc, { signed: true })})
               </td>
               <td>
-                <button className="btn danger small" disabled={closingSymbol === p.symbol} onClick={() => onClose(p.symbol)}>
-                  {closingSymbol === p.symbol ? "Closing…" : "Close"}
-                </button>
+                {onClose && (
+                  <button className="btn danger small" disabled={closingSymbol === p.symbol} onClick={() => onClose(p.symbol)}>
+                    {closingSymbol === p.symbol ? "Closing…" : "Close"}
+                  </button>
+                )}
               </td>
             </tr>
           ))}
@@ -66,7 +69,8 @@ export function PositionsTable({ positions, onClose, closingSymbol }: PositionsP
 
 interface OrdersProps {
   orders: Order[];
-  onCancel: (orderId: string) => void;
+  /** Omitted when this role can't use controls: no Cancel buttons. */
+  onCancel?: (orderId: string) => void;
   cancellingId: string | null;
 }
 
@@ -112,9 +116,11 @@ export function OrdersTable({ orders, onCancel, cancellingId }: OrdersProps) {
                 <span className="pill">{o.status}</span>
               </td>
               <td>
-                <button className="btn small" disabled={cancellingId === o.id} onClick={() => onCancel(o.id)}>
-                  {cancellingId === o.id ? "Cancelling…" : "Cancel"}
-                </button>
+                {onCancel && (
+                  <button className="btn small" disabled={cancellingId === o.id} onClick={() => onCancel(o.id)}>
+                    {cancellingId === o.id ? "Cancelling…" : "Cancel"}
+                  </button>
+                )}
               </td>
             </tr>
           ))}
