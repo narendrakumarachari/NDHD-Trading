@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from .. import convert, deps
 from ..schemas import AccountOut, OrderOut, PositionOut
 
-router = APIRouter(prefix="/api", tags=["market"], dependencies=[Depends(deps.require_api_key)])
+router = APIRouter(prefix="/api", tags=["market"], dependencies=[Depends(deps.require_section("account"))])
 
 
 @router.get("/account", response_model=AccountOut)

@@ -14,7 +14,7 @@ from ..schemas import (
     WheelStrategyOut,
 )
 
-router = APIRouter(prefix="/api", tags=["strategy"], dependencies=[Depends(deps.require_api_key)])
+router = APIRouter(prefix="/api", tags=["strategy"], dependencies=[Depends(deps.require_section("strategy"))])
 
 
 @router.get("/state", response_model=PortfolioStateOut)

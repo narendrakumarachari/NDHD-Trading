@@ -513,3 +513,21 @@ class WatchOut(BaseModel):
     min_stock_price: Optional[float] = None
     adx_min_strength: Optional[float] = None
     note: str
+
+
+# ---------------------------------------------------------------------------
+# Sign-in (api/routers/auth.py)
+# ---------------------------------------------------------------------------
+
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class MeOut(BaseModel):
+    signed_in: bool
+    users_enabled: bool = Field(description="True when DATABASE_URL is set, so username/password sign-in is available")
+    username: Optional[str] = None
+    role: Optional[str] = None
+    sections: List[str] = Field(default_factory=list, description="Dashboard sections this user may see")
+    via: Optional[str] = Field(default=None, description="'session', 'api_key' or 'open'")

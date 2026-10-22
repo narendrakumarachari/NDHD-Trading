@@ -19,18 +19,21 @@ functions the trading engine already uses.
 
 from __future__ import annotations
 
+import hmac
 import os
 import sys
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
+from sqlalchemy.exc import SQLAlchemyError
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 import portfolio_engine as engine  # noqa: E402
+from ndhd import auth, db  # noqa: E402
 
 _alpaca_client: Optional[engine.AlpacaClient] = None
 _state_store: Optional[engine.StateStore] = None
@@ -137,21 +140,61 @@ def get_alpaca_client() -> "engine.AlpacaClient":
     return _alpaca_client
 
 
-def require_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
-    """
-    Simple shared-secret auth via the X-API-Key header, checked against
-    DASHBOARD_API_KEY. If DASHBOARD_API_KEY is unset, the service runs
-    WITHOUT authentication - convenient for local-only development, but
-    every endpoint here (including order submission and the kill switch)
-    is then reachable by anything that can reach this port. main.py logs
-    a loud warning on startup when this is the case; do not bind this
-    service to a non-localhost interface without setting the key.
-    """
+# ---------------------------------------------------------------------------
+# Users and sections (ndhd/db.py, ndhd/auth.py)
+# ---------------------------------------------------------------------------
+#
+# Three ways in, checked in this order:
+#   1. X-API-Key (or ?api_key= for /ws and links) matching DASHBOARD_API_KEY:
+#      full admin, as before.
+#   2. With DATABASE_URL set, the ndhd_session cookie from POST
+#      /api/auth/login: that user's role decides the sections.
+#   3. With neither DASHBOARD_API_KEY nor DATABASE_URL set: open, for
+#      127.0.0.1-only development (main.py warns loudly).
+
+SESSION_COOKIE = "ndhd_session"
+
+
+def users_enabled() -> bool:
+    return db.database_url() is not None
+
+
+def principal_from(api_key: Optional[str], session_token: Optional[str]) -> Optional[auth.Principal]:
     expected = os.getenv("DASHBOARD_API_KEY")
+    if expected and api_key and hmac.compare_digest(api_key.encode(), expected.encode()):
+        return auth.Principal("api-key", db.ADMIN_ROLE, frozenset(db.SECTIONS), "api_key")
+    if users_enabled():
+        if not session_token:
+            return None
+        with db.session() as s:
+            return auth.principal_for_token(s, session_token)
     if not expected:
-        return
-    if x_api_key != expected:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid X-API-Key header.",
-        )
+        return auth.Principal("local", db.ADMIN_ROLE, frozenset(db.SECTIONS), "open")
+    return None
+
+
+def current_principal(request: Request, x_api_key: Optional[str] = Header(default=None)) -> Optional[auth.Principal]:
+    try:
+        return principal_from(x_api_key, request.cookies.get(SESSION_COOKIE))
+    except SQLAlchemyError as exc:
+        # The API key path never touches the database, so it keeps working.
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail=f"Database unavailable ({type(exc).__name__}).") from exc
+
+
+def require_section(section: str):
+    """Route dependency: 401 if not signed in, 403 if the role doesn't
+    include this section (see db.SECTIONS)."""
+    if section not in db.SECTIONS:
+        raise ValueError(f"Unknown section {section!r}")
+
+    def check(principal: Optional[auth.Principal] = Depends(current_principal)) -> auth.Principal:
+        if principal is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="Sign in, or send a valid X-API-Key header.")
+        if section not in principal.sections:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail=f"Your role can't see the {section} section.")
+        return principal
+
+    return check

@@ -25,7 +25,7 @@ from .robinhood import _snapshot_path
 
 LOGGER = logging.getLogger("dashboard-api")
 
-router = APIRouter(prefix="/api", tags=["watch"], dependencies=[Depends(deps.require_api_key)])
+router = APIRouter(prefix="/api", tags=["watch"], dependencies=[Depends(deps.require_section("watch"))])
 
 CACHE_SECONDS = 600
 _lock = threading.Lock()

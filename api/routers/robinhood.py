@@ -20,7 +20,7 @@ from ..schemas import RobinhoodOut
 LOGGER = logging.getLogger("dashboard-api")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-router = APIRouter(prefix="/api", tags=["robinhood"], dependencies=[Depends(deps.require_api_key)])
+router = APIRouter(prefix="/api", tags=["robinhood"], dependencies=[Depends(deps.require_section("robinhood"))])
 
 
 def _snapshot_path() -> Path:
