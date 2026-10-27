@@ -871,9 +871,9 @@ pandas==3.0.6 \
     --hash=sha256:fb625f426b375bcc96e3a04c5d5d266cd7be6ae5d6866e0e703382ab5164068c \
     --hash=sha256:ff51a4459ed036e93d1eb1bb5e6e7b28685d3cb6b7c12b91c05b31024e234729
     # via yfinance
-peewee==4.5.2 \
-    --hash=sha256:10724cf1a6bda2bcdc4da17c376e6ed1d875f16dcabbb42594123cba1304d598 \
-    --hash=sha256:a7765c76834c84799b533aeaa0afeebdcd123b894faefbcebe495fbf4c7548ba
+peewee==4.5.3 \
+    --hash=sha256:434576afaf806428a01f84af74c42fde59372c4f6a6eba26d9b5372113344a8a \
+    --hash=sha256:4c5db9d2a3c4ae9a5725b229c29af51dbd063193f3a6c03b837974a90e44548c
     # via yfinance
 platformdirs==4.13.0 \
     --hash=sha256:1aa0b0d3f224c1f07c295121e312a5a24a180d6ae5a8425ea1784b3e3863e9c0 \
