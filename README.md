@@ -188,7 +188,7 @@ PAPER_ORDERS=false   # true = send orders to the paper account (simulated money)
 OPTION_FEED=indicative   # free; "opra" needs a signed OPRA agreement / paid plan
 
 STOCK_TICKERS=AAPL,MSFT,NVDA
-WATCH_TICKERS=FRMI,QS,ARRY   # dashboard shows the stock strategy's signals for these; never traded
+WATCH_TICKERS=TSLA,AMD   # example; dashboard shows the stock strategy's signals for these; never traded
 STOCK_DIRECTION=long
 STOCK_MAX_POSITIONS=3
 
