@@ -2,6 +2,25 @@
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
+
+# Personal connections, credentials and private account data - never commit.
+# Most of these are already covered by "*.json" below; they are listed by name
+# so that loosening that broad rule can never expose them.
+# - Claude Code's local settings for this project (permissions for the
+#   Robinhood MCP tools live here).
+.claude/settings.local.json
+# - Claude Code keeps MCP sign-in tokens (e.g. the Robinhood connection) in
+#   ~/.claude/.credentials.json; a copy must never land in the repo.
+.credentials.json
+**/.credentials.json
+# - Project-scoped MCP server list. MCP connections here are personal
+#   (Robinhood); keep them at local/user scope, never shared via the repo.
+.mcp.json
+# - Robinhood account snapshot written by Claude Code for the dashboard.
+data/robinhood_snapshot*.json
+**/robinhood_snapshot*.json
 
 # Python
 __pycache__/
